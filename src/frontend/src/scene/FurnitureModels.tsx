@@ -4,6 +4,7 @@ import type { Group, Object3D } from 'three'
 import { Box3, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import type { FurnitureItem, Vec3 } from '../types/scene'
+import type { TransformControls as TransformControlsImpl } from 'three-stdlib'
 
 function cloneForDisplay(source: Object3D, ghost: boolean) {
   const clone = source.clone(true)
@@ -46,6 +47,7 @@ function FurnitureObject({ item }: { item: FurnitureItem }) {
   const setSelectedId = useRoomCanvasStore((state) => state.setSelectedId)
   const updateFurniture = useRoomCanvasStore((state) => state.updateFurniture)
   const groupRef = useRef<Group>(null)
+  const controlsRef = useRef<TransformControlsImpl>(null)
   const initialized = useRef(false)
   const selected = selectedId === item.id
 
@@ -71,7 +73,16 @@ function FurnitureObject({ item }: { item: FurnitureItem }) {
     ]
     group.position.y = nextPosition[1]
     group.scale.set(1, 1, 1)
+    group.updateMatrixWorld(true)
     updateFurniture(item.id, { position: nextPosition, rotation: nextRotation, size: nextSize })
+    requestAnimationFrame(() => {
+      const controls = controlsRef.current
+      const currentGroup = groupRef.current
+      if (!controls || !currentGroup) return
+      controls.detach()
+      controls.attach(currentGroup)
+      controls.update()
+    })
   }
 
   if (!item.modelUrl) return null
@@ -82,6 +93,7 @@ function FurnitureObject({ item }: { item: FurnitureItem }) {
   return <>
     {group}
     {selected && <TransformControls
+      ref={controlsRef}
       object={groupRef as unknown as MutableRefObject<Group>}
       mode={transformMode}
       size={0.7}

@@ -7,6 +7,19 @@ import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 
 type ControlsRef = RefObject<OrbitControlsImpl>
 
+const LOOK_SENSITIVITY = 0.0022
+const MAX_MOUSE_DELTA = 160
+const MAX_PENDING_DELTA = 320
+const MAX_FRAME_DELTA = 48
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function wrapAngle(angle: number) {
+  return Math.atan2(Math.sin(angle), Math.cos(angle))
+}
+
 export function EditCameraController({ controlsRef }: { controlsRef: ControlsRef }) {
   const mode = useRoomCanvasStore((state) => state.mode)
   return (
@@ -32,6 +45,9 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
   const yaw = useRef(0)
   const pitch = useRef(-0.1)
   const lookEuler = useRef(new Euler(0, 0, 0, 'YXZ'))
+  const pendingLook = useRef({ x: 0, y: 0 })
+  const ignoreMouseUntil = useRef(0)
+  const exitRequested = useRef(false)
   const lastMode = useRef(mode)
 
   useEffect(() => {
@@ -43,6 +59,9 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       camera.position.y = 1.65
       camera.position.x = Math.max(-9.7, Math.min(9.7, camera.position.x))
       camera.position.z = Math.max(-9.7, Math.min(9.7, camera.position.z))
+      pendingLook.current.x = 0
+      pendingLook.current.y = 0
+      exitRequested.current = false
       gl.domElement.requestPointerLock()
     }
     if (mode === 'edit' && lastMode.current === 'play') {
@@ -62,6 +81,10 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
     const onKeyDown = (event: KeyboardEvent) => {
       if (mode === 'play') {
         const key = event.key.toLowerCase()
+        if (key === 'escape') {
+          exitRequested.current = true
+          return
+        }
         if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(key)) {
           event.preventDefault()
           keys.current.add(key)
@@ -71,19 +94,27 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
     const onKeyUp = (event: KeyboardEvent) => keys.current.delete(event.key.toLowerCase())
     const onMouseMove = (event: MouseEvent) => {
       if (mode !== 'play' || document.pointerLockElement !== element) return
-      // Pointer Lock normally provides small relative deltas. Guard against
-      // an occasional browser spike so one event cannot teleport the view.
-      const movementX = Number.isFinite(event.movementX) ? Math.max(-160, Math.min(160, event.movementX)) : 0
-      const movementY = Number.isFinite(event.movementY) ? Math.max(-160, Math.min(160, event.movementY)) : 0
-      yaw.current -= movementX * 0.0022
-      pitch.current -= movementY * 0.0022
-      pitch.current = Math.max(-1.35, Math.min(1.35, pitch.current))
+      // Ignore the synthetic delta some browsers emit immediately after lock.
+      if (performance.now() < ignoreMouseUntil.current) return
+      const movementX = Number.isFinite(event.movementX) ? clamp(event.movementX, -MAX_MOUSE_DELTA, MAX_MOUSE_DELTA) : 0
+      const movementY = Number.isFinite(event.movementY) ? clamp(event.movementY, -MAX_MOUSE_DELTA, MAX_MOUSE_DELTA) : 0
+      pendingLook.current.x = clamp(pendingLook.current.x + movementX, -MAX_PENDING_DELTA, MAX_PENDING_DELTA)
+      pendingLook.current.y = clamp(pendingLook.current.y + movementY, -MAX_PENDING_DELTA, MAX_PENDING_DELTA)
     }
     const onClick = () => {
       if (mode === 'play' && document.pointerLockElement !== element) element.requestPointerLock()
     }
     const onPointerLockChange = () => {
-      if (mode === 'play' && document.pointerLockElement !== element) setMode('edit')
+      if (document.pointerLockElement === element) {
+        pendingLook.current.x = 0
+        pendingLook.current.y = 0
+        ignoreMouseUntil.current = performance.now() + 80
+        return
+      }
+      if (mode === 'play' && exitRequested.current) {
+        exitRequested.current = false
+        setMode('edit')
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
@@ -102,8 +133,16 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
   useFrame((_, delta) => {
     if (mode !== 'play') return
 
-    // Apply look input every frame, even while the player is standing still.
-    // The previous early return made mouse movement appear one keypress late.
+    // Consume relative mouse input once per frame. This decouples camera look
+    // from pointer-lock event frequency and prevents one large event from
+    // producing a discontinuous jump.
+    const lookDeltaX = clamp(pendingLook.current.x, -MAX_FRAME_DELTA, MAX_FRAME_DELTA)
+    const lookDeltaY = clamp(pendingLook.current.y, -MAX_FRAME_DELTA, MAX_FRAME_DELTA)
+    pendingLook.current.x -= lookDeltaX
+    pendingLook.current.y -= lookDeltaY
+    yaw.current = wrapAngle(yaw.current - lookDeltaX * LOOK_SENSITIVITY)
+    pitch.current = clamp(pitch.current - lookDeltaY * LOOK_SENSITIVITY, -1.35, 1.35)
+
     lookEuler.current.set(pitch.current, yaw.current, 0, 'YXZ')
     camera.quaternion.setFromEuler(lookEuler.current)
 

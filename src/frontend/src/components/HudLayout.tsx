@@ -1,8 +1,6 @@
 import { Crosshair } from 'lucide-react'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import { AssetDrawer } from './AssetDrawer'
-import { HierarchyPanel } from './HierarchyPanel'
-import { InspectorPanel } from './InspectorPanel'
 import { TopToolbar } from './TopToolbar'
 
 interface HudLayoutProps {
@@ -15,7 +13,7 @@ export function HudLayout({ onToast }: HudLayoutProps) {
   return (
     <div className={`hud-layer ${isPlay ? 'is-play-mode' : ''}`}>
       <TopToolbar onToast={onToast} />
-      {!isPlay && <><HierarchyPanel /><InspectorPanel /><AssetDrawer onToast={onToast} /></>}
+      {!isPlay && <AssetDrawer onToast={onToast} />}
       {isPlay && <div className="play-hint"><Crosshair size={13} /> WASD / 方向键移动 <span>·</span> 鼠标环视 <span>·</span> ESC 退出</div>}
     </div>
   )

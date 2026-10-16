@@ -8,9 +8,9 @@ import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 type ControlsRef = RefObject<OrbitControlsImpl>
 
 const LOOK_SENSITIVITY = 0.0022
-const MAX_MOUSE_DELTA = 160
-const MAX_PENDING_DELTA = 320
-const MAX_FRAME_DELTA = 48
+const MAX_MOUSE_DELTA = 48
+const MAX_PENDING_DELTA = 64
+const MAX_FRAME_DELTA = 12
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
@@ -18,6 +18,18 @@ function clamp(value: number, min: number, max: number) {
 
 function wrapAngle(angle: number) {
   return Math.atan2(Math.sin(angle), Math.cos(angle))
+}
+
+function requestRawPointerLock(element: HTMLCanvasElement) {
+  try {
+    const result = element.requestPointerLock({ unadjustedMovement: true })
+    if (result && typeof result.catch === 'function') {
+      void result.catch(() => element.requestPointerLock())
+    }
+  } catch {
+    // Older browsers do not accept PointerLockOptions.
+    element.requestPointerLock()
+  }
 }
 
 export function EditCameraController({ controlsRef }: { controlsRef: ControlsRef }) {
@@ -62,7 +74,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       pendingLook.current.x = 0
       pendingLook.current.y = 0
       exitRequested.current = false
-      gl.domElement.requestPointerLock()
+      requestRawPointerLock(gl.domElement)
     }
     if (mode === 'edit' && lastMode.current === 'play') {
       document.exitPointerLock()
@@ -96,8 +108,24 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       if (mode !== 'play' || document.pointerLockElement !== element) return
       // Ignore the synthetic delta some browsers emit immediately after lock.
       if (performance.now() < ignoreMouseUntil.current) return
-      const movementX = Number.isFinite(event.movementX) ? clamp(event.movementX, -MAX_MOUSE_DELTA, MAX_MOUSE_DELTA) : 0
-      const movementY = Number.isFinite(event.movementY) ? clamp(event.movementY, -MAX_MOUSE_DELTA, MAX_MOUSE_DELTA) : 0
+      const legacyEvent = event as MouseEvent & { mozMovementX?: number; mozMovementY?: number; webkitMovementX?: number; webkitMovementY?: number }
+      const rawMovementX = event.movementX || legacyEvent.mozMovementX || legacyEvent.webkitMovementX || 0
+      const rawMovementY = event.movementY || legacyEvent.mozMovementY || legacyEvent.webkitMovementY || 0
+      const movementX = Number.isFinite(rawMovementX) ? rawMovementX : 0
+      const movementY = Number.isFinite(rawMovementY) ? rawMovementY : 0
+      const magnitude = Math.max(Math.abs(movementX), Math.abs(movementY))
+
+      // A lock transition or a tab/focus resume can report a stale absolute
+      // delta. Applying it is the source of the apparent camera teleport.
+      // Pointer Lock has no viewport edge; discard the outlier instead.
+      if (
+        magnitude > MAX_MOUSE_DELTA
+      ) {
+        pendingLook.current.x = 0
+        pendingLook.current.y = 0
+        return
+      }
+
       pendingLook.current.x = clamp(pendingLook.current.x + movementX, -MAX_PENDING_DELTA, MAX_PENDING_DELTA)
       pendingLook.current.y = clamp(pendingLook.current.y + movementY, -MAX_PENDING_DELTA, MAX_PENDING_DELTA)
     }
@@ -116,16 +144,26 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
         setMode('edit')
       }
     }
+    const clearLookInput = () => {
+      pendingLook.current.x = 0
+      pendingLook.current.y = 0
+      keys.current.clear()
+    }
+    const onPointerLockError = () => clearLookInput()
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('pointerlockchange', onPointerLockChange)
+    document.addEventListener('pointerlockerror', onPointerLockError)
+    window.addEventListener('blur', clearLookInput)
     element.addEventListener('click', onClick)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('pointerlockchange', onPointerLockChange)
+      document.removeEventListener('pointerlockerror', onPointerLockError)
+      window.removeEventListener('blur', clearLookInput)
       element.removeEventListener('click', onClick)
     }
   }, [gl.domElement, mode, setMode])

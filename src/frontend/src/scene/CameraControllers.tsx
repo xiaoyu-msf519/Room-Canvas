@@ -1,9 +1,10 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 import { OrbitControls } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { Euler, Vector3 } from 'three'
+import { Euler, PerspectiveCamera, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
+import { canStandAt, captureEditorView, createWalkObstacles, EYE_HEIGHT, findWalkSpawn, restoreEditorView, zoomWalkCamera } from './navigation'
 
 type ControlsRef = RefObject<OrbitControlsImpl>
 
@@ -38,10 +39,11 @@ export function EditCameraController({ controlsRef }: { controlsRef: ControlsRef
     <OrbitControls
       ref={controlsRef}
       enabled={mode === 'edit'}
-      enableDamping
-      dampingFactor={0.08}
-      minDistance={1.2}
-      maxDistance={20}
+      enableDamping={false}
+      enableZoom
+      zoomSpeed={1.1}
+      minDistance={0.25}
+      maxDistance={80}
       maxPolarAngle={Math.PI * 0.49}
       target={[0, 0.8, 0]}
       mouseButtons={{ LEFT: 0, MIDDLE: 1, RIGHT: 2 }}
@@ -52,6 +54,9 @@ export function EditCameraController({ controlsRef }: { controlsRef: ControlsRef
 export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef }) {
   const mode = useRoomCanvasStore((state) => state.mode)
   const setMode = useRoomCanvasStore((state) => state.setMode)
+  const furnitureList = useRoomCanvasStore((state) => state.furnitureList)
+  const roomColliders = useRoomCanvasStore((state) => state.roomColliders)
+  const obstacles = useMemo(() => createWalkObstacles([...roomColliders, ...furnitureList]), [furnitureList, roomColliders])
   const { camera, gl } = useThree()
   const keys = useRef(new Set<string>())
   const yaw = useRef(0)
@@ -59,34 +64,49 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
   const lookEuler = useRef(new Euler(0, 0, 0, 'YXZ'))
   const pendingLook = useRef({ x: 0, y: 0 })
   const ignoreMouseUntil = useRef(0)
-  const exitRequested = useRef(false)
   const lastMode = useRef(mode)
+  const editorView = useRef<ReturnType<typeof captureEditorView> | null>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const controls = controlsRef.current
     if (mode === 'play' && lastMode.current !== 'play') {
+      // Snapshot before spawning; do not let OrbitControls consume a Play frame.
+      editorView.current = captureEditorView(camera, controls?.target ?? new Vector3())
+      if (controls) controls.enabled = false
+      keys.current.clear()
+      pendingLook.current.x = 0
+      pendingLook.current.y = 0
+      const spawn = findWalkSpawn(obstacles)
+      if (!spawn) {
+        setMode('edit')
+        return
+      }
       const direction = new Vector3()
       camera.getWorldDirection(direction)
       yaw.current = Math.atan2(-direction.x, -direction.z)
-      pitch.current = Math.asin(Math.max(-1, Math.min(1, direction.y)))
-      camera.position.y = 1.65
-      camera.position.x = Math.max(-9.7, Math.min(9.7, camera.position.x))
-      camera.position.z = Math.max(-9.7, Math.min(9.7, camera.position.z))
-      pendingLook.current.x = 0
-      pendingLook.current.y = 0
-      exitRequested.current = false
+      pitch.current = 0
+      camera.position.copy(spawn)
+      lookEuler.current.set(0, yaw.current, 0, 'YXZ')
+      camera.quaternion.setFromEuler(lookEuler.current)
+      if (camera instanceof PerspectiveCamera) {
+        camera.fov = 52
+        camera.zoom = 1
+        camera.updateProjectionMatrix()
+      }
       requestRawPointerLock(gl.domElement)
     }
     if (mode === 'edit' && lastMode.current === 'play') {
-      document.exitPointerLock()
-      const direction = new Vector3()
-      camera.getWorldDirection(direction)
-      if (controlsRef.current) {
-        controlsRef.current.target.copy(camera.position).add(direction.multiplyScalar(3))
-        controlsRef.current.update()
+      if (document.pointerLockElement === gl.domElement) document.exitPointerLock()
+      keys.current.clear()
+      pendingLook.current.x = 0
+      pendingLook.current.y = 0
+      if (editorView.current && controls) {
+        restoreEditorView(camera, controls.target, editorView.current)
       }
+      if (controls) controls.enabled = true
     }
     lastMode.current = mode
-  }, [camera, controlsRef, gl.domElement, mode])
+  }, [camera, controlsRef, gl.domElement, mode, obstacles, setMode])
 
   useEffect(() => {
     const element = gl.domElement
@@ -94,7 +114,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       if (mode === 'play') {
         const key = event.key.toLowerCase()
         if (key === 'escape') {
-          exitRequested.current = true
+          setMode('edit')
           return
         }
         if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(key)) {
@@ -130,7 +150,14 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       pendingLook.current.y = clamp(pendingLook.current.y + movementY, -MAX_PENDING_DELTA, MAX_PENDING_DELTA)
     }
     const onClick = () => {
-      if (mode === 'play' && document.pointerLockElement !== element) element.requestPointerLock()
+      if (mode === 'play' && document.pointerLockElement !== element) requestRawPointerLock(element)
+    }
+    const onWheel = (event: WheelEvent) => {
+      if (mode !== 'play' || !(camera instanceof PerspectiveCamera)) return
+      if (document.pointerLockElement !== element && event.target !== element) return
+      event.preventDefault()
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1
+      zoomWalkCamera(camera, event.deltaY * unit)
     }
     const onPointerLockChange = () => {
       if (document.pointerLockElement === element) {
@@ -139,8 +166,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
         ignoreMouseUntil.current = performance.now() + 80
         return
       }
-      if (mode === 'play' && exitRequested.current) {
-        exitRequested.current = false
+      if (mode === 'play') {
         setMode('edit')
       }
     }
@@ -155,6 +181,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('pointerlockchange', onPointerLockChange)
     document.addEventListener('pointerlockerror', onPointerLockError)
+    document.addEventListener('wheel', onWheel, { passive: false })
     window.addEventListener('blur', clearLookInput)
     element.addEventListener('click', onClick)
     return () => {
@@ -163,10 +190,11 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('pointerlockchange', onPointerLockChange)
       document.removeEventListener('pointerlockerror', onPointerLockError)
+      document.removeEventListener('wheel', onWheel)
       window.removeEventListener('blur', clearLookInput)
       element.removeEventListener('click', onClick)
     }
-  }, [gl.domElement, mode, setMode])
+  }, [camera, gl.domElement, mode, setMode])
 
   useFrame((_, delta) => {
     if (mode !== 'play') return
@@ -183,6 +211,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
 
     lookEuler.current.set(pitch.current, yaw.current, 0, 'YXZ')
     camera.quaternion.setFromEuler(lookEuler.current)
+    camera.position.y = EYE_HEIGHT
 
     const forward = Number(keys.current.has('w') || keys.current.has('arrowup')) - Number(keys.current.has('s') || keys.current.has('arrowdown'))
     const strafe = Number(keys.current.has('d') || keys.current.has('arrowright')) - Number(keys.current.has('a') || keys.current.has('arrowleft'))
@@ -195,11 +224,11 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
     const forwardZ = -Math.cos(yaw.current)
     const rightX = Math.cos(yaw.current)
     const rightZ = -Math.sin(yaw.current)
-    camera.position.x += ((forwardX * forward + rightX * strafe) / length) * speed * delta
-    camera.position.z += ((forwardZ * forward + rightZ * strafe) / length) * speed * delta
-    camera.position.x = Math.max(-9.7, Math.min(9.7, camera.position.x))
-    camera.position.z = Math.max(-9.7, Math.min(9.7, camera.position.z))
-    camera.position.y = 1.65
+    const step = speed * Math.min(delta, 0.05) / length
+    const nextX = camera.position.x + (forwardX * forward + rightX * strafe) * step
+    const nextZ = camera.position.z + (forwardZ * forward + rightZ * strafe) * step
+    if (canStandAt(nextX, camera.position.z, obstacles)) camera.position.x = nextX
+    if (canStandAt(camera.position.x, nextZ, obstacles)) camera.position.z = nextZ
   })
 
   return null

@@ -6,13 +6,16 @@ export type FurnitureKind = 'original' | 'imported'
 export type GenerationStatus = 'pending' | 'queued' | 'running' | 'succeeded' | 'failed'
 export type AssetSource = 'file' | 'clipboard' | 'drop' | 'url'
 
-export interface FurnitureItem {
-  id: string
-  name: string
-  kind: FurnitureKind
+export interface SceneCollider {
   position: Vec3
   size: Vec3
   rotation: Quaternion
+}
+
+export interface FurnitureItem extends SceneCollider {
+  id: string
+  name: string
+  kind: FurnitureKind
   modelUrl?: string
   generationStatus?: GenerationStatus
 }
@@ -24,6 +27,7 @@ export interface SceneManifest {
   room: {
     modelUrl?: string
     bounds: Vec3
+    colliders?: SceneCollider[]
   }
   furniture: FurnitureItem[]
   cameras: Array<{

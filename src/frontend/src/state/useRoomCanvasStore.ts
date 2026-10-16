@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { FurnitureItem, UploadedAsset } from '../types/scene'
+import type { FurnitureItem, SceneCollider, UploadedAsset } from '../types/scene'
 
 export type RoomMode = 'edit' | 'play'
 export type TransformMode = 'translate' | 'rotate' | 'scale'
@@ -11,6 +11,7 @@ interface RoomCanvasState {
   showWireframe: boolean
   lightingPreset: LightingPreset
   furnitureList: FurnitureItem[]
+  roomColliders: SceneCollider[]
   selectedId: string | null
   uploadedAssets: UploadedAsset[]
   setMode: (mode: RoomMode) => void
@@ -28,6 +29,7 @@ export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
   showWireframe: true,
   lightingPreset: 'morning',
   furnitureList: [],
+  roomColliders: [],
   selectedId: null,
   uploadedAssets: [],
   setMode: (mode) => set((state) => ({ mode, ...(mode === 'play' ? { selectedId: null } : { selectedId: state.selectedId }) })),

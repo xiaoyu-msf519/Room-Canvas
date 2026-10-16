@@ -2,7 +2,7 @@ import { useEffect, useRef, type RefObject } from 'react'
 import { OrbitControls } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { Vector3 } from 'three'
+import { Euler, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 
 type ControlsRef = RefObject<OrbitControlsImpl>
@@ -31,6 +31,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
   const keys = useRef(new Set<string>())
   const yaw = useRef(0)
   const pitch = useRef(-0.1)
+  const lookEuler = useRef(new Euler(0, 0, 0, 'YXZ'))
   const lastMode = useRef(mode)
 
   useEffect(() => {
@@ -70,8 +71,12 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
     const onKeyUp = (event: KeyboardEvent) => keys.current.delete(event.key.toLowerCase())
     const onMouseMove = (event: MouseEvent) => {
       if (mode !== 'play' || document.pointerLockElement !== element) return
-      yaw.current -= event.movementX * 0.0022
-      pitch.current -= event.movementY * 0.0022
+      // Pointer Lock normally provides small relative deltas. Guard against
+      // an occasional browser spike so one event cannot teleport the view.
+      const movementX = Number.isFinite(event.movementX) ? Math.max(-160, Math.min(160, event.movementX)) : 0
+      const movementY = Number.isFinite(event.movementY) ? Math.max(-160, Math.min(160, event.movementY)) : 0
+      yaw.current -= movementX * 0.0022
+      pitch.current -= movementY * 0.0022
       pitch.current = Math.max(-1.35, Math.min(1.35, pitch.current))
     }
     const onClick = () => {
@@ -99,9 +104,8 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
 
     // Apply look input every frame, even while the player is standing still.
     // The previous early return made mouse movement appear one keypress late.
-    camera.rotation.order = 'YXZ'
-    camera.rotation.y = yaw.current
-    camera.rotation.x = pitch.current
+    lookEuler.current.set(pitch.current, yaw.current, 0, 'YXZ')
+    camera.quaternion.setFromEuler(lookEuler.current)
 
     const forward = Number(keys.current.has('w') || keys.current.has('arrowup')) - Number(keys.current.has('s') || keys.current.has('arrowdown'))
     const strafe = Number(keys.current.has('d') || keys.current.has('arrowright')) - Number(keys.current.has('a') || keys.current.has('arrowleft'))

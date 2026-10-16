@@ -59,7 +59,13 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
   useEffect(() => {
     const element = gl.domElement
     const onKeyDown = (event: KeyboardEvent) => {
-      if (mode === 'play') keys.current.add(event.key.toLowerCase())
+      if (mode === 'play') {
+        const key = event.key.toLowerCase()
+        if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(key)) {
+          event.preventDefault()
+          keys.current.add(key)
+        }
+      }
     }
     const onKeyUp = (event: KeyboardEvent) => keys.current.delete(event.key.toLowerCase())
     const onMouseMove = (event: MouseEvent) => {
@@ -90,19 +96,29 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
 
   useFrame((_, delta) => {
     if (mode !== 'play') return
+
+    // Apply look input every frame, even while the player is standing still.
+    // The previous early return made mouse movement appear one keypress late.
+    camera.rotation.order = 'YXZ'
+    camera.rotation.y = yaw.current
+    camera.rotation.x = pitch.current
+
     const forward = Number(keys.current.has('w') || keys.current.has('arrowup')) - Number(keys.current.has('s') || keys.current.has('arrowdown'))
     const strafe = Number(keys.current.has('d') || keys.current.has('arrowright')) - Number(keys.current.has('a') || keys.current.has('arrowleft'))
     if (!forward && !strafe) return
     const speed = keys.current.has('shift') ? 4.6 : 2.8
     const length = Math.hypot(forward, strafe) || 1
-    camera.position.x += ((Math.sin(yaw.current) * forward + Math.cos(yaw.current) * strafe) / length) * speed * delta
-    camera.position.z += ((Math.cos(yaw.current) * -forward + Math.sin(yaw.current) * strafe) / length) * speed * delta
+    // Three.js cameras look down local -Z. Keep W forward and D right
+    // relative to that heading, regardless of the current yaw.
+    const forwardX = -Math.sin(yaw.current)
+    const forwardZ = -Math.cos(yaw.current)
+    const rightX = Math.cos(yaw.current)
+    const rightZ = -Math.sin(yaw.current)
+    camera.position.x += ((forwardX * forward + rightX * strafe) / length) * speed * delta
+    camera.position.z += ((forwardZ * forward + rightZ * strafe) / length) * speed * delta
     camera.position.x = Math.max(-9.7, Math.min(9.7, camera.position.x))
     camera.position.z = Math.max(-9.7, Math.min(9.7, camera.position.z))
     camera.position.y = 1.65
-    camera.rotation.order = 'YXZ'
-    camera.rotation.y = yaw.current
-    camera.rotation.x = pitch.current
   })
 
   return null

@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, type MutableRefObject } from 'react'
 import { TransformControls, useGLTF } from '@react-three/drei'
-import type { Group, Object3D } from 'three'
-import { Box3, Vector3 } from 'three'
+import type { Object3D } from 'three'
+import { Box3, Group, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import type { FurnitureItem, Vec3 } from '../types/scene'
 import type { TransformControls as TransformControlsImpl } from 'three-stdlib'
@@ -28,17 +28,24 @@ function cloneForDisplay(source: Object3D, ghost: boolean) {
 
 function ModelObject({ modelUrl, size, ghost = false }: { modelUrl: string; size: Vec3; ghost?: boolean }) {
   const { scene } = useGLTF(modelUrl)
-  const display = useMemo(() => cloneForDisplay(scene, ghost), [ghost, scene])
   const fit = useMemo(() => {
-    const bounds = new Box3().setFromObject(display)
+    // Keep the GLB's own node transforms (including the real-scale wrapper),
+    // but measure them inside an identity container. The returned inner offset
+    // puts the visual bounds center exactly on the furniture root origin.
+    const display = cloneForDisplay(scene, ghost)
+    const measureRoot = new Group()
+    measureRoot.add(display)
+    measureRoot.updateMatrixWorld(true)
+    const bounds = new Box3().setFromObject(measureRoot)
     const center = bounds.getCenter(new Vector3())
     const extents = bounds.getSize(new Vector3())
     return {
+      display,
       center,
       scale: [size[0] / Math.max(extents.x, 0.0001), size[1] / Math.max(extents.y, 0.0001), size[2] / Math.max(extents.z, 0.0001)] as Vec3,
     }
-  }, [display, size])
-  return <group position={[-fit.center.x * fit.scale[0], -fit.center.y * fit.scale[1], -fit.center.z * fit.scale[2]]} scale={fit.scale}><primitive object={display} /></group>
+  }, [ghost, scene, size])
+  return <group scale={fit.scale}><group position={[-fit.center.x, -fit.center.y, -fit.center.z]}><primitive object={fit.display} /></group></group>
 }
 
 function FurnitureObject({ item }: { item: FurnitureItem }) {

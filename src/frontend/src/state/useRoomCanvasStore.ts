@@ -13,6 +13,7 @@ interface RoomCanvasState {
   furnitureList: FurnitureItem[]
   roomColliders: SceneCollider[]
   selectedId: string | null
+  isTransforming: boolean
   uploadedAssets: UploadedAsset[]
   draggingAssetId: string | null
   placementPreview: Vec3 | null
@@ -21,6 +22,7 @@ interface RoomCanvasState {
   setShowWireframe: (show: boolean) => void
   setLightingPreset: (preset: LightingPreset) => void
   setSelectedId: (id: string | null) => void
+  setIsTransforming: (isTransforming: boolean) => void
   addUploadedAsset: (asset: UploadedAsset) => void
   updateUploadedAsset: (id: string, patch: Partial<UploadedAsset>) => void
   removeUploadedAsset: (id: string) => void
@@ -38,6 +40,7 @@ export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
   furnitureList: [],
   roomColliders: [],
   selectedId: null,
+  isTransforming: false,
   uploadedAssets: [],
   draggingAssetId: null,
   placementPreview: null,
@@ -46,6 +49,7 @@ export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
   setShowWireframe: (showWireframe) => set({ showWireframe }),
   setLightingPreset: (lightingPreset) => set({ lightingPreset }),
   setSelectedId: (selectedId) => set({ selectedId }),
+  setIsTransforming: (isTransforming) => set({ isTransforming }),
   addUploadedAsset: (asset) => set((state) => state.uploadedAssets.some((current) => current.id === asset.id) ? state : ({ uploadedAssets: [asset, ...state.uploadedAssets] })),
   updateUploadedAsset: (id, patch) => set((state) => ({ uploadedAssets: state.uploadedAssets.map((asset) => asset.id === id ? { ...asset, ...patch } : asset) })),
   removeUploadedAsset: (id) => set((state) => ({ uploadedAssets: state.uploadedAssets.filter((asset) => asset.id !== id) })),

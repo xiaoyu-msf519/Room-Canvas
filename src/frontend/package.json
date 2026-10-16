@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "verify:rotation": "node scripts/verify-ground-rotation.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

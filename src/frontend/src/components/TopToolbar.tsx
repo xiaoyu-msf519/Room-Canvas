@@ -1,10 +1,13 @@
+import { useEffect } from 'react'
 import {
   CloudSun,
   Eye,
   EyeOff,
   Moon,
+  Move,
   Play,
   Save,
+  RotateCw,
   Square,
   Sun,
 } from 'lucide-react'
@@ -24,11 +27,24 @@ export function TopToolbar({ onToast }: TopToolbarProps) {
   const mode = useRoomCanvasStore((state) => state.mode)
   const showWireframe = useRoomCanvasStore((state) => state.showWireframe)
   const lightingPreset = useRoomCanvasStore((state) => state.lightingPreset)
+  const transformMode = useRoomCanvasStore((state) => state.transformMode)
   const setMode = useRoomCanvasStore((state) => state.setMode)
   const setShowWireframe = useRoomCanvasStore((state) => state.setShowWireframe)
   const setLightingPreset = useRoomCanvasStore((state) => state.setLightingPreset)
+  const setTransformMode = useRoomCanvasStore((state) => state.setTransformMode)
 
   const playMode = mode === 'play'
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (playMode || useRoomCanvasStore.getState().isTransforming || event.ctrlKey || event.metaKey || event.altKey) return
+      if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (event.code === 'KeyW') setTransformMode('translate')
+      if (event.code === 'KeyE') setTransformMode('rotate')
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [playMode, setTransformMode])
 
   return (
     <header className="top-toolbar glass-panel">
@@ -40,6 +56,11 @@ export function TopToolbar({ onToast }: TopToolbarProps) {
             <small>SPATIAL EDITOR / 01</small>
           </div>
         </div>
+
+        {!playMode && <div className="furniture-tools" role="group" aria-label="家具变换工具">
+          <button className={`tool-button ${transformMode === 'translate' ? 'is-active' : ''}`} type="button" aria-label="移动家具" aria-pressed={transformMode === 'translate'} title="移动家具 (W)" onClick={() => setTransformMode('translate')}><Move size={16} /></button>
+          <button className={`tool-button ${transformMode === 'rotate' ? 'is-active' : ''}`} type="button" aria-label="旋转家具" aria-pressed={transformMode === 'rotate'} title="水平旋转家具 (E)" onClick={() => setTransformMode('rotate')}><RotateCw size={16} /></button>
+        </div>}
 
         <button
           className={`tool-button wireframe-button ${showWireframe ? 'is-active' : ''}`}

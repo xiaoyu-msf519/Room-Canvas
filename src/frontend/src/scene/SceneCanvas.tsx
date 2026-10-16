@@ -68,7 +68,9 @@ export function SceneCanvas() {
         shadows={mode === 'play'}
         dpr={mode === 'play' ? [1, 2] : [1, 1.35]}
         camera={{ position: [4.8, 4.4, 6.2], fov: 52, near: 0.05, far: 100 }}
-        onPointerMissed={() => setSelectedId(null)}
+        onPointerMissed={() => {
+          if (!useRoomCanvasStore.getState().isTransforming) setSelectedId(null)
+        }}
         gl={{ antialias: true, logarithmicDepthBuffer: true }}
       >
         <color attach="background" args={["#c7d5db"]} />

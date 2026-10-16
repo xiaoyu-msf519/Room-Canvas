@@ -62,7 +62,7 @@ export function findWalkSpawn(obstacles: OBB[]) {
   return null
 }
 
-export function zoomWalkCamera(camera: PerspectiveCamera, wheelPixels: number) {
-  camera.fov = Math.max(30, Math.min(85, camera.fov * Math.exp(wheelPixels * 0.001)))
+export function setWalkFocus(camera: PerspectiveCamera, held: boolean, baseFov: number) {
+  camera.fov = held ? Math.min(baseFov, 30) : baseFov
   camera.updateProjectionMatrix()
 }

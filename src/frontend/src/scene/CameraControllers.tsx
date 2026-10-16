@@ -1,10 +1,10 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 import { OrbitControls } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { Euler, PerspectiveCamera, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
-import { canStandAt, captureEditorView, createWalkObstacles, EYE_HEIGHT, findWalkSpawn, restoreEditorView, zoomWalkCamera } from './navigation'
+import { canStandAt, captureEditorView, createWalkObstacles, EYE_HEIGHT, findWalkSpawn, restoreEditorView, setWalkFocus } from './navigation'
 import { bindPlayExit } from './playExit'
 
 type ControlsRef = RefObject<OrbitControlsImpl>
@@ -44,7 +44,7 @@ export function EditCameraController({ controlsRef }: { controlsRef: ControlsRef
       ref={controlsRef}
       enabled={mode === 'edit'}
       enableDamping={false}
-      enableZoom
+      enableZoom={mode === 'edit'}
       zoomSpeed={1.1}
       minDistance={0.25}
       maxDistance={80}
@@ -71,6 +71,13 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
   const lastMode = useRef(mode)
   const editorView = useRef<ReturnType<typeof captureEditorView> | null>(null)
   const exitMonitor = useRef<ReturnType<typeof bindPlayExit> | null>(null)
+  const focusFov = useRef<number | null>(null)
+  const releaseFocus = useCallback(() => {
+    if (camera instanceof PerspectiveCamera && focusFov.current !== null) {
+      setWalkFocus(camera, false, focusFov.current)
+      focusFov.current = null
+    }
+  }, [camera])
 
   // Register before requesting lock, and retain listeners across mode changes.
   useLayoutEffect(() => {
@@ -78,6 +85,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       gl.domElement,
       () => useRoomCanvasStore.getState().mode === 'play',
       () => {
+        releaseFocus()
         keys.current.clear()
         pendingLook.current.x = 0
         pendingLook.current.y = 0
@@ -89,7 +97,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       monitor.dispose()
       exitMonitor.current = null
     }
-  }, [gl.domElement, setMode])
+  }, [gl.domElement, releaseFocus, setMode])
 
   useLayoutEffect(() => {
     const controls = controlsRef.current
@@ -120,6 +128,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       requestRawPointerLock(gl.domElement)
     }
     if (mode === 'edit' && lastMode.current === 'play') {
+      releaseFocus()
       if (document.pointerLockElement === gl.domElement) document.exitPointerLock()
       keys.current.clear()
       pendingLook.current.x = 0
@@ -130,20 +139,32 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       if (controls) controls.enabled = true
     }
     lastMode.current = mode
-  }, [camera, controlsRef, gl.domElement, mode, obstacles, setMode])
+  }, [camera, controlsRef, gl.domElement, mode, obstacles, releaseFocus, setMode])
 
   useEffect(() => {
     const element = gl.domElement
     const onKeyDown = (event: KeyboardEvent) => {
-      if (mode === 'play') {
+      if (useRoomCanvasStore.getState().mode === 'play') {
         const key = event.key.toLowerCase()
+        if (event.code === 'KeyC' || key === 'c') {
+          if (event.ctrlKey || event.metaKey || event.altKey) return
+          event.preventDefault()
+          if (camera instanceof PerspectiveCamera && focusFov.current === null) {
+            focusFov.current = camera.fov
+            setWalkFocus(camera, true, focusFov.current)
+          }
+          return
+        }
         if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(key)) {
           event.preventDefault()
           keys.current.add(key)
         }
       }
     }
-    const onKeyUp = (event: KeyboardEvent) => keys.current.delete(event.key.toLowerCase())
+    const onKeyUp = (event: KeyboardEvent) => {
+      keys.current.delete(event.key.toLowerCase())
+      if (event.code === 'KeyC' || event.key.toLowerCase() === 'c') releaseFocus()
+    }
     const onMouseMove = (event: MouseEvent) => {
       if (mode !== 'play' || document.pointerLockElement !== element) return
       // Ignore the synthetic delta some browsers emit immediately after lock.
@@ -173,11 +194,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       if (mode === 'play' && document.pointerLockElement !== element) requestRawPointerLock(element)
     }
     const onWheel = (event: WheelEvent) => {
-      if (mode !== 'play' || !(camera instanceof PerspectiveCamera)) return
-      if (document.pointerLockElement !== element && event.target !== element) return
-      event.preventDefault()
-      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1
-      zoomWalkCamera(camera, event.deltaY * unit)
+      if (useRoomCanvasStore.getState().mode === 'play') event.preventDefault()
     }
     const onPointerLockChange = () => {
       if (document.pointerLockElement === element) {
@@ -188,30 +205,37 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       }
     }
     const clearLookInput = () => {
+      releaseFocus()
       pendingLook.current.x = 0
       pendingLook.current.y = 0
       keys.current.clear()
     }
     const onPointerLockError = () => clearLookInput()
+    const onVisibilityChange = () => {
+      if (document.hidden) clearLookInput()
+    }
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('pointerlockchange', onPointerLockChange)
     document.addEventListener('pointerlockerror', onPointerLockError)
     document.addEventListener('wheel', onWheel, { passive: false })
+    document.addEventListener('visibilitychange', onVisibilityChange)
     window.addEventListener('blur', clearLookInput)
     element.addEventListener('click', onClick)
     return () => {
+      releaseFocus()
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('pointerlockchange', onPointerLockChange)
       document.removeEventListener('pointerlockerror', onPointerLockError)
       document.removeEventListener('wheel', onWheel)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('blur', clearLookInput)
       element.removeEventListener('click', onClick)
     }
-  }, [camera, gl.domElement, mode, setMode])
+  }, [camera, gl.domElement, mode, releaseFocus])
 
   useFrame((_, delta) => {
     exitMonitor.current?.checkLock()

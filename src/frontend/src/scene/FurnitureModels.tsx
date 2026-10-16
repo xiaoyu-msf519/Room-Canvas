@@ -1,7 +1,7 @@
-import { useMemo, useRef, type MutableRefObject } from 'react'
+import { useLayoutEffect, useMemo, useRef, type MutableRefObject } from 'react'
 import { TransformControls, useGLTF } from '@react-three/drei'
 import type { Group, Object3D } from 'three'
-import { Box3, Euler, Quaternion, Vector3 } from 'three'
+import { Box3, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import type { FurnitureItem, Vec3 } from '../types/scene'
 
@@ -25,10 +25,6 @@ function cloneForDisplay(source: Object3D, ghost: boolean) {
   return clone
 }
 
-function quatToEuler(rotation: FurnitureItem['rotation']) {
-  return new Euler().setFromQuaternion(new Quaternion(...rotation).normalize())
-}
-
 function ModelObject({ modelUrl, size, ghost = false }: { modelUrl: string; size: Vec3; ghost?: boolean }) {
   const { scene } = useGLTF(modelUrl)
   const display = useMemo(() => cloneForDisplay(scene, ghost), [ghost, scene])
@@ -50,7 +46,18 @@ function FurnitureObject({ item }: { item: FurnitureItem }) {
   const setSelectedId = useRoomCanvasStore((state) => state.setSelectedId)
   const updateFurniture = useRoomCanvasStore((state) => state.updateFurniture)
   const groupRef = useRef<Group>(null)
+  const initialized = useRef(false)
   const selected = selectedId === item.id
+
+  useLayoutEffect(() => {
+    const group = groupRef.current
+    if (!group || initialized.current) return
+    group.position.fromArray(item.position)
+    group.quaternion.fromArray(item.rotation).normalize()
+    group.scale.set(1, 1, 1)
+    group.updateMatrixWorld(true)
+    initialized.current = true
+  }, [item.position, item.rotation])
 
   const commitTransform = () => {
     const group = groupRef.current
@@ -68,7 +75,7 @@ function FurnitureObject({ item }: { item: FurnitureItem }) {
   }
 
   if (!item.modelUrl) return null
-  const group = <group ref={groupRef} position={item.position} rotation={quatToEuler(item.rotation)} onClick={(event) => { event.stopPropagation(); setSelectedId(item.id) }}>
+  const group = <group ref={groupRef} onClick={(event) => { event.stopPropagation(); setSelectedId(item.id) }}>
     <ModelObject modelUrl={item.modelUrl} size={item.size} />
   </group>
 

@@ -134,6 +134,8 @@ kbd { color: #6b7d85; font: 9px 'DM Mono', monospace; }
 .asset-card { position: relative; flex: 0 0 270px; height: 145px; display: grid; grid-template-columns: 68px 1fr; gap: 10px; padding: 8px; border: 1px solid var(--line); background: rgba(0,0,0,.19); overflow: hidden; }
 .asset-card.is-processing { border-color: rgba(131, 224, 238, .42); }
 .asset-card.is-ready { border-color: rgba(102, 230, 187, .35); }
+.asset-card.is-draggable { cursor: grab; }
+.asset-card.is-draggable:active { cursor: grabbing; }
 .asset-thumb { position: relative; width: 68px; height: 68px; overflow: hidden; background: #18232b; }
 .asset-thumb img { width: 100%; height: 100%; display: block; object-fit: cover; }
 .asset-loading-shade { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; background: rgba(5, 12, 17, .75); color: var(--cyan); backdrop-filter: blur(2px); }
@@ -150,6 +152,7 @@ kbd { color: #6b7d85; font: 9px 'DM Mono', monospace; }
 .processing-status, .ready-status, .error-status { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 8px 'DM Mono', monospace; }
 .processing-status { color: var(--cyan); }
 .ready-status { color: #70e7c1; }
+.drag-status { color: #7d9ca3; font: 8px 'DM Mono', monospace; }
 .error-status { color: var(--danger); }
 .add-to-room { display: inline-flex; align-items: center; gap: 4px; height: 23px; margin-top: auto; padding: 0 7px; border: 1px solid rgba(131, 224, 238, .28); background: rgba(131, 224, 238, .06); color: var(--cyan); font-size: 9px; cursor: pointer; }
 .add-to-room:hover { background: rgba(131, 224, 238, .14); }

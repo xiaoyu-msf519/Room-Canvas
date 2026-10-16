@@ -5,6 +5,7 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { Euler, PerspectiveCamera, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import { canStandAt, captureEditorView, createWalkObstacles, EYE_HEIGHT, findWalkSpawn, restoreEditorView, zoomWalkCamera } from './navigation'
+import { bindPlayExit } from './playExit'
 
 type ControlsRef = RefObject<OrbitControlsImpl>
 
@@ -22,10 +23,13 @@ function wrapAngle(angle: number) {
 }
 
 function requestRawPointerLock(element: HTMLCanvasElement) {
+  if (useRoomCanvasStore.getState().mode !== 'play') return
   try {
     const result = element.requestPointerLock({ unadjustedMovement: true })
     if (result && typeof result.catch === 'function') {
-      void result.catch(() => element.requestPointerLock())
+      void result.catch(() => {
+        if (useRoomCanvasStore.getState().mode === 'play') element.requestPointerLock()
+      })
     }
   } catch {
     // Older browsers do not accept PointerLockOptions.
@@ -66,6 +70,26 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
   const ignoreMouseUntil = useRef(0)
   const lastMode = useRef(mode)
   const editorView = useRef<ReturnType<typeof captureEditorView> | null>(null)
+  const exitMonitor = useRef<ReturnType<typeof bindPlayExit> | null>(null)
+
+  // Register before requesting lock, and retain listeners across mode changes.
+  useLayoutEffect(() => {
+    const monitor = bindPlayExit(
+      gl.domElement,
+      () => useRoomCanvasStore.getState().mode === 'play',
+      () => {
+        keys.current.clear()
+        pendingLook.current.x = 0
+        pendingLook.current.y = 0
+        setMode('edit')
+      },
+    )
+    exitMonitor.current = monitor
+    return () => {
+      monitor.dispose()
+      exitMonitor.current = null
+    }
+  }, [gl.domElement, setMode])
 
   useLayoutEffect(() => {
     const controls = controlsRef.current
@@ -113,10 +137,6 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
     const onKeyDown = (event: KeyboardEvent) => {
       if (mode === 'play') {
         const key = event.key.toLowerCase()
-        if (key === 'escape') {
-          setMode('edit')
-          return
-        }
         if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(key)) {
           event.preventDefault()
           keys.current.add(key)
@@ -166,9 +186,6 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
         ignoreMouseUntil.current = performance.now() + 80
         return
       }
-      if (mode === 'play') {
-        setMode('edit')
-      }
     }
     const clearLookInput = () => {
       pendingLook.current.x = 0
@@ -197,7 +214,8 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
   }, [camera, gl.domElement, mode, setMode])
 
   useFrame((_, delta) => {
-    if (mode !== 'play') return
+    exitMonitor.current?.checkLock()
+    if (mode !== 'play' || useRoomCanvasStore.getState().mode !== 'play') return
 
     // Consume relative mouse input once per frame. This decouples camera look
     // from pointer-lock event frequency and prevents one large event from

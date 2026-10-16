@@ -1,28 +1,18 @@
-import { useEffect } from 'react'
 import {
   CloudSun,
   Eye,
   EyeOff,
-  Maximize2,
   Moon,
-  Move,
   Play,
-  RotateCw,
   Save,
   Square,
   Sun,
 } from 'lucide-react'
-import { useRoomCanvasStore, type LightingPreset, type TransformMode } from '../state/useRoomCanvasStore'
+import { useRoomCanvasStore, type LightingPreset } from '../state/useRoomCanvasStore'
 
 interface TopToolbarProps {
   onToast: (message: string) => void
 }
-
-const transformTools: Array<{ id: TransformMode; label: string; shortcut: string; icon: typeof Move }> = [
-  { id: 'translate', label: '移动', shortcut: 'W', icon: Move },
-  { id: 'rotate', label: '旋转', shortcut: 'E', icon: RotateCw },
-  { id: 'scale', label: '缩放', shortcut: 'R', icon: Maximize2 },
-]
 
 const lightingTools: Array<{ id: LightingPreset; label: string; icon: typeof Sun }> = [
   { id: 'morning', label: '晨光', icon: CloudSun },
@@ -32,53 +22,25 @@ const lightingTools: Array<{ id: LightingPreset; label: string; icon: typeof Sun
 
 export function TopToolbar({ onToast }: TopToolbarProps) {
   const mode = useRoomCanvasStore((state) => state.mode)
-  const transformMode = useRoomCanvasStore((state) => state.transformMode)
   const showWireframe = useRoomCanvasStore((state) => state.showWireframe)
   const lightingPreset = useRoomCanvasStore((state) => state.lightingPreset)
   const setMode = useRoomCanvasStore((state) => state.setMode)
-  const setTransformMode = useRoomCanvasStore((state) => state.setTransformMode)
   const setShowWireframe = useRoomCanvasStore((state) => state.setShowWireframe)
   const setLightingPreset = useRoomCanvasStore((state) => state.setLightingPreset)
 
   const playMode = mode === 'play'
 
-  useEffect(() => {
-    const onShortcut = (event: KeyboardEvent) => {
-      if (mode !== 'edit' || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
-      const shortcut = event.key.toLowerCase()
-      if (shortcut === 'w') setTransformMode('translate')
-      if (shortcut === 'e') setTransformMode('rotate')
-      if (shortcut === 'r') setTransformMode('scale')
-    }
-    window.addEventListener('keydown', onShortcut)
-    return () => window.removeEventListener('keydown', onShortcut)
-  }, [mode, setTransformMode])
-
   return (
     <header className="top-toolbar glass-panel">
-      <div className="toolbar-section toolbar-brand">
-        <div className="brand-mark" aria-hidden="true"><span /></div>
-        <div>
-          <strong>ROOM<span>CANVAS</span></strong>
-          <small>SPATIAL EDITOR / 01</small>
+      <div className="toolbar-section toolbar-left">
+        <div className="toolbar-brand">
+          <div className="brand-mark" aria-hidden="true"><span /></div>
+          <div>
+            <strong>ROOM<span>CANVAS</span></strong>
+            <small>SPATIAL EDITOR / 01</small>
+          </div>
         </div>
-      </div>
 
-      <div className="toolbar-section transform-tools" aria-label="Transform tools">
-        {transformTools.map(({ id, label, shortcut, icon: Icon }) => (
-          <button
-            className={`tool-button ${transformMode === id ? 'is-active' : ''}`}
-            key={id}
-            type="button"
-            onClick={() => setTransformMode(id)}
-            title={`${label} (${shortcut})`}
-          >
-            <Icon size={15} strokeWidth={1.8} />
-            <span>{label}</span>
-            <kbd>{shortcut}</kbd>
-          </button>
-        ))}
-        <span className="toolbar-divider" />
         <button
           className={`tool-button wireframe-button ${showWireframe ? 'is-active' : ''}`}
           type="button"

@@ -36,8 +36,6 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--cyan); outl
 .top-toolbar { position: absolute; top: 14px; left: 14px; right: 14px; height: 57px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 18px; padding: 0 11px 0 13px; border-radius: 5px; pointer-events: auto; }
 .toolbar-section { display: flex; align-items: center; min-width: 0; }
 .toolbar-left { gap: 20px; }
-.furniture-tools { display: flex; flex-shrink: 0; gap: 2px; padding-left: 10px; border-left: 1px solid var(--line); }
-.furniture-tools .tool-button { width: 32px; padding: 0; }
 .toolbar-brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .brand-mark { width: 29px; height: 29px; position: relative; border: 1px solid rgba(131, 224, 238, .7); transform: rotate(45deg); display: grid; place-items: center; }
 .brand-mark::before, .brand-mark::after { content: ''; position: absolute; background: var(--cyan); }
@@ -179,8 +177,6 @@ kbd { color: #6b7d85; font: 9px 'DM Mono', monospace; }
   .toolbar-left { gap: 10px; }
   .toolbar-brand strong { font-size: 10px; letter-spacing: 0; }
   .brand-mark { width: 22px; height: 22px; }
-  .furniture-tools { padding-left: 5px; }
-  .furniture-tools .tool-button { width: 28px; }
   .toolbar-brand small, .wireframe-button, .mode-label { display: none; }
   .mode-switcher { justify-content: flex-end; }
   .hud-panel { top: 70px; bottom: auto; height: 178px; }

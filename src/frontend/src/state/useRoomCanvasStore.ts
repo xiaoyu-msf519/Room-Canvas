@@ -2,12 +2,10 @@ import { create } from 'zustand'
 import type { FurnitureItem, SceneCollider, UploadedAsset, Vec3 } from '../types/scene'
 
 export type RoomMode = 'edit' | 'play'
-export type TransformMode = 'translate' | 'rotate' | 'scale'
 export type LightingPreset = 'morning' | 'sunset' | 'night'
 
 interface RoomCanvasState {
   mode: RoomMode
-  transformMode: TransformMode
   showWireframe: boolean
   lightingPreset: LightingPreset
   furnitureList: FurnitureItem[]
@@ -18,7 +16,6 @@ interface RoomCanvasState {
   draggingAssetId: string | null
   placementPreview: Vec3 | null
   setMode: (mode: RoomMode) => void
-  setTransformMode: (mode: TransformMode) => void
   setShowWireframe: (show: boolean) => void
   setLightingPreset: (preset: LightingPreset) => void
   setSelectedId: (id: string | null) => void
@@ -34,7 +31,6 @@ interface RoomCanvasState {
 
 export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
   mode: 'edit',
-  transformMode: 'translate',
   showWireframe: true,
   lightingPreset: 'morning',
   furnitureList: [],
@@ -45,7 +41,6 @@ export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
   draggingAssetId: null,
   placementPreview: null,
   setMode: (mode) => set((state) => ({ mode, ...(mode === 'play' ? { selectedId: null } : { selectedId: state.selectedId }) })),
-  setTransformMode: (transformMode) => set({ transformMode }),
   setShowWireframe: (showWireframe) => set({ showWireframe }),
   setLightingPreset: (lightingPreset) => set({ lightingPreset }),
   setSelectedId: (selectedId) => set({ selectedId }),

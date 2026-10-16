@@ -1,11 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, type MutableRefObject } from 'react'
-import { TransformControls, useGLTF } from '@react-three/drei'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useGLTF } from '@react-three/drei'
 import type { Object3D } from 'three'
 import { Box3, Group, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import type { FurnitureItem, Vec3 } from '../types/scene'
-import type { TransformControls as TransformControlsImpl } from 'three-stdlib'
 import { groundRotation } from './furnitureTransform'
+import { FurnitureGizmo } from './FurnitureGizmo'
 
 function cloneForDisplay(source: Object3D, ghost: boolean) {
   const clone = source.clone(true)
@@ -68,13 +68,11 @@ function FurnitureVisual({ modelUrl, size }: { modelUrl?: string; size: Vec3 }) 
 
 function FurnitureObject({ item }: { item: FurnitureItem }) {
   const selectedId = useRoomCanvasStore((state) => state.selectedId)
-  const transformMode = useRoomCanvasStore((state) => state.transformMode)
   const mode = useRoomCanvasStore((state) => state.mode)
   const setSelectedId = useRoomCanvasStore((state) => state.setSelectedId)
   const updateFurniture = useRoomCanvasStore((state) => state.updateFurniture)
   const setIsTransforming = useRoomCanvasStore((state) => state.setIsTransforming)
   const groupRef = useRef<Group>(null)
-  const controlsRef = useRef<TransformControlsImpl>(null)
   const initialized = useRef(false)
   const selected = selectedId === item.id
 
@@ -98,27 +96,15 @@ function FurnitureObject({ item }: { item: FurnitureItem }) {
     group.quaternion.copy(groundRotation(group.quaternion))
     const nextPosition: Vec3 = [group.position.x, item.size[1] / 2, group.position.z]
     const nextRotation: FurnitureItem['rotation'] = [group.quaternion.x, group.quaternion.y, group.quaternion.z, group.quaternion.w]
-    const nextSize: Vec3 = [
-      Math.max(0.05, item.size[0] * Math.abs(group.scale.x)),
-      Math.max(0.05, item.size[1] * Math.abs(group.scale.y)),
-      Math.max(0.05, item.size[2] * Math.abs(group.scale.z)),
-    ]
     group.position.y = nextPosition[1]
     group.scale.set(1, 1, 1)
     group.updateMatrixWorld(true)
     updateFurniture(item.id, {
       position: nextPosition,
       rotation: nextRotation,
-      ...(transformMode === 'scale' ? { size: nextSize } : {}),
     })
     requestAnimationFrame(() => {
       setIsTransforming(false)
-      const controls = controlsRef.current
-      const currentGroup = groupRef.current
-      if (!controls || !currentGroup) return
-      controls.detach()
-      controls.attach(currentGroup)
-      controls.updateMatrixWorld()
     })
   }
 
@@ -129,22 +115,11 @@ function FurnitureObject({ item }: { item: FurnitureItem }) {
 
   return <>
     {group}
-    {selected && mode === 'edit' && <TransformControls
-      ref={controlsRef}
-      object={groupRef as unknown as MutableRefObject<Group>}
-      mode={transformMode}
-      size={0.7}
-      showX={transformMode !== 'rotate'}
-      showY={transformMode !== 'translate'}
-      showZ={transformMode !== 'rotate'}
-      space="world"
-      onMouseDown={() => setIsTransforming(true)}
-      onObjectChange={() => {
-        if (transformMode === 'rotate' && groupRef.current) {
-          groupRef.current.quaternion.copy(groundRotation(groupRef.current.quaternion))
-        }
-      }}
-      onMouseUp={commitTransform}
+    {selected && mode === 'edit' && <FurnitureGizmo
+      target={groupRef}
+      height={item.size[1]}
+      onDragStart={() => setIsTransforming(true)}
+      onDragEnd={commitTransform}
     />}
   </>
 }

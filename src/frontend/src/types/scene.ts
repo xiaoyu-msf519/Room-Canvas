@@ -3,8 +3,8 @@ export type Vec3 = [number, number, number]
 export type Quaternion = [number, number, number, number]
 
 export type FurnitureKind = 'original' | 'imported'
-export type GenerationStatus = 'pending' | 'queued' | 'running' | 'succeeded' | 'failed'
-export type AssetSource = 'file' | 'clipboard' | 'drop' | 'url'
+export type GenerationStatus = 'needs_dimensions' | 'uploading' | 'generating' | 'scaling' | 'succeeded' | 'failed'
+export type AssetSource = 'file' | 'clipboard' | 'drop' | 'url' | 'demo'
 
 export interface SceneCollider {
   position: Vec3
@@ -46,4 +46,13 @@ export interface UploadedAsset {
   source: AssetSource
   status: GenerationStatus
   createdAt: number
+  dimensionsMm?: {
+    width: number
+    depth: number
+    height: number
+  }
+  jobId?: string
+  modelUrl?: string
+  stageMessage?: string
+  error?: string
 }

@@ -20,6 +20,7 @@ interface RoomCanvasState {
   setLightingPreset: (preset: LightingPreset) => void
   setSelectedId: (id: string | null) => void
   addUploadedAsset: (asset: UploadedAsset) => void
+  updateUploadedAsset: (id: string, patch: Partial<UploadedAsset>) => void
   removeUploadedAsset: (id: string) => void
 }
 
@@ -38,5 +39,6 @@ export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
   setLightingPreset: (lightingPreset) => set({ lightingPreset }),
   setSelectedId: (selectedId) => set({ selectedId }),
   addUploadedAsset: (asset) => set((state) => ({ uploadedAssets: [asset, ...state.uploadedAssets] })),
+  updateUploadedAsset: (id, patch) => set((state) => ({ uploadedAssets: state.uploadedAssets.map((asset) => asset.id === id ? { ...asset, ...patch } : asset) })),
   removeUploadedAsset: (id) => set((state) => ({ uploadedAssets: state.uploadedAssets.filter((asset) => asset.id !== id) })),
 }))

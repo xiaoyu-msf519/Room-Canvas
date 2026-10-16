@@ -152,7 +152,6 @@ kbd { color: #6b7d85; font: 9px 'DM Mono', monospace; }
 .processing-status, .ready-status, .error-status { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 8px 'DM Mono', monospace; }
 .processing-status { color: var(--cyan); }
 .ready-status { color: #70e7c1; }
-.drag-status { color: #7d9ca3; font: 8px 'DM Mono', monospace; }
 .error-status { color: var(--danger); }
 .add-to-room { display: inline-flex; align-items: center; gap: 4px; height: 23px; margin-top: auto; padding: 0 7px; border: 1px solid rgba(131, 224, 238, .28); background: rgba(131, 224, 238, .06); color: var(--cyan); font-size: 9px; cursor: pointer; }
 .add-to-room:hover { background: rgba(131, 224, 238, .14); }

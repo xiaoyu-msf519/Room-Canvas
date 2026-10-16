@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import shutil
+import struct
 import uuid
 import zipfile
 from dataclasses import asdict, dataclass, field
@@ -150,7 +151,16 @@ async def _run_generation(job: GenerationJob, source_path: Path, content_type: s
 
 async def _submit_rodin(api_key: str, source_path: Path, content_type: str) -> dict[str, str]:
     headers = {"Authorization": f"Bearer {api_key}"}
-    data = {"tier": "Gen-2.5-Medium", "mesh_mode": "Raw", "quality": "medium"}
+    # Explicitly request a textured GLB. Rodin's default texture mode follows
+    # the tier, but keeping it explicit prevents a future schema/default change
+    # from producing an untextured mesh for furniture assets.
+    data = {
+        "tier": "Gen-2.5-Medium",
+        "mesh_mode": "Raw",
+        "quality": "medium",
+        "geometry_file_format": "glb",
+        "texture_mode": os.getenv("RODIN_TEXTURE_MODE", "high"),
+    }
     verify_tls = os.getenv("RODIN_VERIFY_TLS", "1") != "0"
     async with httpx.AsyncClient(timeout=60, verify=verify_tls) as client:
         with source_path.open("rb") as source:
@@ -255,10 +265,54 @@ def _scale_glb(source_path: Path, target_path: Path, width_mm: float, depth_mm: 
         raise RuntimeError("GLB 几何尺寸无效，无法进行真实尺度校准")
     center = (bounds[0] + bounds[1]) / 2
     target = [width_mm / 1000, height_mm / 1000, depth_mm / 1000]
-    transform = trimesh.transformations.translation_matrix(-center)
-    transform = trimesh.transformations.scale_and_translate(scale=[target[0] / extents[0], target[1] / extents[1], target[2] / extents[2]], translate=[0, 0, 0]) @ transform
-    scene.apply_transform(transform)
-    scene.export(target_path, file_type="glb")
+    scale = [target[0] / extents[0], target[1] / extents[1], target[2] / extents[2]]
+
+    # Re-exporting a textured GLB through trimesh can drop embedded images.
+    # Keep every original GLB chunk and add one wrapper node containing the
+    # centering and scale transform, so geometry and texture references survive.
+    raw = source_path.read_bytes()
+    magic, version, declared_length = struct.unpack_from("<4sII", raw, 0)
+    if magic != b"glTF" or declared_length != len(raw):
+        raise RuntimeError("GLB 文件头无效")
+    chunks: list[tuple[int, bytes]] = []
+    offset = 12
+    json_chunk_index = -1
+    document: dict[str, Any] | None = None
+    while offset < len(raw):
+        chunk_length, chunk_type = struct.unpack_from("<II", raw, offset)
+        offset += 8
+        chunk = raw[offset:offset + chunk_length]
+        offset += chunk_length
+        chunks.append((chunk_type, chunk))
+        if chunk_type == 0x4E4F534A:
+            json_chunk_index = len(chunks) - 1
+            document = json.loads(chunk.rstrip(b" \t\r\n").decode("utf-8"))
+    if json_chunk_index < 0 or document is None:
+        raise RuntimeError("GLB 缺少 JSON chunk")
+
+    scenes = document.get("scenes") or []
+    scene_index = int(document.get("scene", 0))
+    if not scenes or scene_index >= len(scenes):
+        raise RuntimeError("GLB 缺少有效场景")
+    roots = list(scenes[scene_index].get("nodes", []))
+    nodes = document.setdefault("nodes", [])
+    wrapper_index = len(nodes)
+    nodes.append({
+        "name": "RoomCanvasRealScale",
+        "children": roots,
+        "translation": [float(-center[0] * scale[0]), float(-center[1] * scale[1]), float(-center[2] * scale[2])],
+        "scale": [float(scale[0]), float(scale[1]), float(scale[2])],
+    })
+    scenes[scene_index]["nodes"] = [wrapper_index]
+    encoded_json = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    encoded_json += b" " * ((4 - len(encoded_json) % 4) % 4)
+    chunks[json_chunk_index] = (0x4E4F534A, encoded_json)
+    output = bytearray(struct.pack("<4sII", b"glTF", version, 0))
+    for chunk_type, chunk in chunks:
+        output.extend(struct.pack("<II", len(chunk), chunk_type))
+        output.extend(chunk)
+    struct.pack_into("<I", output, 8, len(output))
+    target_path.write_bytes(output)
 
 
 def _write_job(job: GenerationJob) -> None:

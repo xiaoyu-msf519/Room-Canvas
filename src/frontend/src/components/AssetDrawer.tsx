@@ -128,7 +128,7 @@ export function AssetDrawer({ onToast }: AssetDrawerProps) {
             <div className="asset-card-info"><strong title={asset.name}>{asset.name}</strong>
               {asset.status === 'needs_dimensions' && <><span className="dimension-label"><Ruler size={11} />真实尺寸 / mm</span><div className="dimension-inputs"><input aria-label="宽度 mm" placeholder="宽" inputMode="decimal" value={input.width} onChange={(event) => setDimension(asset.id, 'width', event.target.value)} /><input aria-label="深度 mm" placeholder="深" inputMode="decimal" value={input.depth} onChange={(event) => setDimension(asset.id, 'depth', event.target.value)} /><input aria-label="高度 mm" placeholder="高" inputMode="decimal" value={input.height} onChange={(event) => setDimension(asset.id, 'height', event.target.value)} /></div><button type="button" className="add-to-room generate-button" onClick={() => void startGeneration(asset)}><Plus size={12} />开始生成 3D</button></>}
               {processing && <span className="processing-status">{asset.stageMessage}</span>}
-              {asset.status === 'succeeded' && <><span className="ready-status">已完成 · 真实尺度</span><span className="drag-status">拖动到上方场景放置</span></>}
+              {asset.status === 'succeeded' && <span className="ready-status">已完成 · 真实尺度</span>}
               {asset.status === 'failed' && <><span className="error-status">{asset.error || '生成失败'}</span><button type="button" className="add-to-room retry-button" onClick={() => void startGeneration(asset)}>重试生成</button></>}
             </div>
           </article>

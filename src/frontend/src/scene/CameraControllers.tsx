@@ -42,6 +42,7 @@ export function EditCameraController({ controlsRef }: { controlsRef: ControlsRef
   return (
     <OrbitControls
       ref={controlsRef}
+      makeDefault
       enabled={mode === 'edit'}
       enableDamping={false}
       enableZoom={mode === 'edit'}

@@ -62,7 +62,7 @@ export function SceneCanvas() {
   }
 
   return (
-    <div className="scene-canvas" aria-label="RoomCanvas 3D scene" onDragOver={onDragOver} onDrop={onDrop} onDragLeave={() => { if (draggingAssetId) setPlacementPreview(null) }}>
+    <div className="scene-canvas" aria-label="RoomCanvas 3D scene" onDragOver={onDragOver} onDrop={onDrop}>
       <Canvas
         shadows
         dpr={[1, 2]}

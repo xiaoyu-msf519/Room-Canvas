@@ -52,5 +52,9 @@ export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
   addFurniture: (item) => set((state) => ({ furnitureList: [...state.furnitureList, item] })),
   updateFurniture: (id, patch) => set((state) => ({ furnitureList: state.furnitureList.map((item) => item.id === id ? { ...item, ...patch } : item) })),
   setDraggingAssetId: (draggingAssetId) => set({ draggingAssetId, placementPreview: null }),
-  setPlacementPreview: (placementPreview) => set({ placementPreview }),
+  setPlacementPreview: (placementPreview) => set((state) => {
+    if (!placementPreview || !state.placementPreview) return { placementPreview }
+    const same = Math.abs(state.placementPreview[0] - placementPreview[0]) < 0.01 && Math.abs(state.placementPreview[2] - placementPreview[2]) < 0.01
+    return same ? state : { placementPreview }
+  }),
 }))

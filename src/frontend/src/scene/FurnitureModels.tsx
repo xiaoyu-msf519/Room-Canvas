@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, type MutableRefObject } from 'react'
 import { TransformControls, useGLTF } from '@react-three/drei'
 import type { Group, Object3D } from 'three'
 import { Box3, Euler, Quaternion, Vector3 } from 'three'
@@ -9,7 +9,7 @@ function cloneForDisplay(source: Object3D, ghost: boolean) {
   const clone = source.clone(true)
   clone.traverse((child) => {
     if (!('isMesh' in child) || !child.isMesh) return
-    const mesh = child as typeof child & { material?: any }
+    const mesh = child as Object3D & { material?: any }
     if (!mesh.material) return
     mesh.material = Array.isArray(mesh.material) ? mesh.material.map((material) => material.clone()) : mesh.material.clone()
     if (ghost) {
@@ -57,26 +57,42 @@ function FurnitureObject({ item }: { item: FurnitureItem }) {
     if (!group) return
     const nextPosition: Vec3 = [group.position.x, Math.max(item.size[1] / 2, group.position.y), group.position.z]
     const nextRotation: FurnitureItem['rotation'] = [group.quaternion.x, group.quaternion.y, group.quaternion.z, group.quaternion.w]
-    const nextScale: Vec3 = [item.size[0] * group.scale.x, item.size[1] * group.scale.y, item.size[2] * group.scale.z]
+    const nextSize: Vec3 = [
+      Math.max(0.05, item.size[0] * Math.abs(group.scale.x)),
+      Math.max(0.05, item.size[1] * Math.abs(group.scale.y)),
+      Math.max(0.05, item.size[2] * Math.abs(group.scale.z)),
+    ]
     group.position.y = nextPosition[1]
-    updateFurniture(item.id, { position: nextPosition, rotation: nextRotation, size: nextScale })
+    group.scale.set(1, 1, 1)
+    updateFurniture(item.id, { position: nextPosition, rotation: nextRotation, size: nextSize })
   }
 
   if (!item.modelUrl) return null
-  return <group onClick={(event) => { event.stopPropagation(); setSelectedId(item.id) }}>
-    {selected && <TransformControls mode={transformMode} size={0.7} showX showY={transformMode !== 'translate'} showZ axis={transformMode === 'rotate' ? 'Y' : undefined} onObjectChange={commitTransform}>
-      <group ref={groupRef} position={item.position} rotation={quatToEuler(item.rotation)}>
-        <ModelObject modelUrl={item.modelUrl} size={item.size} />
-      </group>
-    </TransformControls>}
-    {!selected && <group ref={groupRef} position={item.position} rotation={quatToEuler(item.rotation)}><ModelObject modelUrl={item.modelUrl} size={item.size} /></group>}
+  const group = <group ref={groupRef} position={item.position} rotation={quatToEuler(item.rotation)} onClick={(event) => { event.stopPropagation(); setSelectedId(item.id) }}>
+    <ModelObject modelUrl={item.modelUrl} size={item.size} />
   </group>
+
+  return <>
+    {group}
+    {selected && <TransformControls
+      object={groupRef as unknown as MutableRefObject<Group>}
+      mode={transformMode}
+      size={0.7}
+      showX
+      showY={transformMode !== 'translate'}
+      showZ
+      axis={transformMode === 'rotate' ? 'Y' : undefined}
+      space="world"
+      onMouseUp={commitTransform}
+    />}
+  </>
 }
 
 function PlacementPreview({ asset }: { asset: { modelUrl?: string; dimensionsMm?: { width: number; depth: number; height: number } } }) {
   const placementPreview = useRoomCanvasStore((state) => state.placementPreview)
-  if (!placementPreview || !asset.dimensionsMm) return null
-  const size: Vec3 = [asset.dimensionsMm.width / 1000, asset.dimensionsMm.height / 1000, asset.dimensionsMm.depth / 1000]
+  const dimensions = asset.dimensionsMm
+  const size = useMemo<Vec3 | null>(() => dimensions ? [dimensions.width / 1000, dimensions.height / 1000, dimensions.depth / 1000] : null, [dimensions?.depth, dimensions?.height, dimensions?.width])
+  if (!placementPreview || !size) return null
   const position: Vec3 = [placementPreview[0], size[1] / 2, placementPreview[2]]
   return <group position={position}>
     {asset.modelUrl ? <ModelObject modelUrl={asset.modelUrl} size={size} ghost /> : <mesh position={[0, -size[1] / 2 + 0.01, 0]}><boxGeometry args={[size[0], 0.02, size[2]]} /><meshBasicMaterial color="#83e0ee" transparent opacity={0.35} /></mesh>}

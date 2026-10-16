@@ -17,6 +17,7 @@ export interface FurnitureItem extends SceneCollider {
   name: string
   kind: FurnitureKind
   modelUrl?: string
+  editModelUrl?: string
   generationStatus?: GenerationStatus
 }
 
@@ -53,6 +54,7 @@ export interface UploadedAsset {
   }
   jobId?: string
   modelUrl?: string
+  editModelUrl?: string
   stageMessage?: string
   error?: string
 }

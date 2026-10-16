@@ -26,13 +26,13 @@ function cloneForDisplay(source: Object3D, ghost: boolean) {
   return clone
 }
 
-function ModelObject({ modelUrl, size, ghost = false }: { modelUrl: string; size: Vec3; ghost?: boolean }) {
+function ModelObject({ modelUrl, size }: { modelUrl: string; size: Vec3 }) {
   const { scene } = useGLTF(modelUrl)
   const fit = useMemo(() => {
     // Keep the GLB's own node transforms (including the real-scale wrapper),
     // but measure them inside an identity container. The returned inner offset
     // puts the visual bounds center exactly on the furniture root origin.
-    const display = cloneForDisplay(scene, ghost)
+    const display = cloneForDisplay(scene, false)
     const measureRoot = new Group()
     measureRoot.add(display)
     measureRoot.updateMatrixWorld(true)
@@ -44,13 +44,31 @@ function ModelObject({ modelUrl, size, ghost = false }: { modelUrl: string; size
       center,
       scale: [size[0] / Math.max(extents.x, 0.0001), size[1] / Math.max(extents.y, 0.0001), size[2] / Math.max(extents.z, 0.0001)] as Vec3,
     }
-  }, [ghost, scene, size])
+  }, [scene, size])
   return <group scale={fit.scale}><group position={[-fit.center.x, -fit.center.y, -fit.center.z]}><primitive object={fit.display} /></group></group>
+}
+
+function LowProxy({ size }: { size: Vec3 }) {
+  return <group>
+    <mesh castShadow receiveShadow>
+      <boxGeometry args={size} />
+      <meshStandardMaterial color="#78aeb8" transparent opacity={0.18} roughness={0.9} wireframe />
+    </mesh>
+    <mesh position={[0, -size[1] / 2 + 0.012, 0]} receiveShadow>
+      <boxGeometry args={[size[0] * 0.92, 0.02, size[2] * 0.92]} />
+      <meshBasicMaterial color="#83e0ee" transparent opacity={0.18} />
+    </mesh>
+  </group>
+}
+
+function FurnitureVisual({ modelUrl, size }: { modelUrl?: string; size: Vec3 }) {
+  return modelUrl ? <ModelObject modelUrl={modelUrl} size={size} /> : <LowProxy size={size} />
 }
 
 function FurnitureObject({ item }: { item: FurnitureItem }) {
   const selectedId = useRoomCanvasStore((state) => state.selectedId)
   const transformMode = useRoomCanvasStore((state) => state.transformMode)
+  const mode = useRoomCanvasStore((state) => state.mode)
   const setSelectedId = useRoomCanvasStore((state) => state.setSelectedId)
   const updateFurniture = useRoomCanvasStore((state) => state.updateFurniture)
   const groupRef = useRef<Group>(null)
@@ -92,14 +110,14 @@ function FurnitureObject({ item }: { item: FurnitureItem }) {
     })
   }
 
-  if (!item.modelUrl) return null
+  const modelUrl = mode === 'play' ? item.modelUrl : item.editModelUrl
   const group = <group ref={groupRef} onClick={(event) => { event.stopPropagation(); setSelectedId(item.id) }}>
-    <ModelObject modelUrl={item.modelUrl} size={item.size} />
+    <FurnitureVisual modelUrl={modelUrl} size={item.size} />
   </group>
 
   return <>
     {group}
-    {selected && <TransformControls
+    {selected && mode === 'edit' && <TransformControls
       ref={controlsRef}
       object={groupRef as unknown as MutableRefObject<Group>}
       mode={transformMode}
@@ -114,14 +132,14 @@ function FurnitureObject({ item }: { item: FurnitureItem }) {
   </>
 }
 
-function PlacementPreview({ asset }: { asset: { modelUrl?: string; dimensionsMm?: { width: number; depth: number; height: number } } }) {
+function PlacementPreview({ asset }: { asset: { dimensionsMm?: { width: number; depth: number; height: number } } }) {
   const placementPreview = useRoomCanvasStore((state) => state.placementPreview)
   const dimensions = asset.dimensionsMm
   const size = useMemo<Vec3 | null>(() => dimensions ? [dimensions.width / 1000, dimensions.height / 1000, dimensions.depth / 1000] : null, [dimensions?.depth, dimensions?.height, dimensions?.width])
   if (!placementPreview || !size) return null
   const position: Vec3 = [placementPreview[0], size[1] / 2, placementPreview[2]]
   return <group position={position}>
-    {asset.modelUrl ? <ModelObject modelUrl={asset.modelUrl} size={size} ghost /> : <mesh position={[0, -size[1] / 2 + 0.01, 0]}><boxGeometry args={[size[0], 0.02, size[2]]} /><meshBasicMaterial color="#83e0ee" transparent opacity={0.35} /></mesh>}
+    <LowProxy size={size} />
   </group>
 }
 
@@ -135,4 +153,4 @@ export function FurnitureModels() {
   </>
 }
 
-useGLTF.preload('/demo/sofa-scaled.glb')
+useGLTF.preload('/demo/sofa-edit-low.glb')

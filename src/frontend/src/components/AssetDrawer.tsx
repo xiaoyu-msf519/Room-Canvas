@@ -31,7 +31,7 @@ export function AssetDrawer({ onToast }: AssetDrawerProps) {
     if (assets.some((asset) => asset.source === 'demo')) return
     addAsset({
       id: 'demo-sofa', name: '沙发示例 · Rodin GLB', previewUrl: '/demo/sofa.png', source: 'demo',
-      status: 'succeeded', dimensionsMm: { width: 2100, depth: 900, height: 850 }, modelUrl: '/demo/sofa-scaled.glb',
+      status: 'succeeded', dimensionsMm: { width: 2100, depth: 900, height: 850 }, modelUrl: '/demo/sofa-scaled.glb', editModelUrl: '/demo/sofa-edit-low.glb',
       stageMessage: '生成完成，已按输入尺寸校准', createdAt: Date.now(),
     })
   }, [addAsset, assets])
@@ -73,11 +73,11 @@ export function AssetDrawer({ onToast }: AssetDrawerProps) {
     for (;;) {
       await new Promise((resolve) => window.setTimeout(resolve, 2200))
       const response = await fetch(`/api/jobs/${jobId}`)
-      const payload = await response.json() as { status: UploadedAsset['status']; stage_message?: string; model_url?: string; error?: string }
+      const payload = await response.json() as { status: UploadedAsset['status']; stage_message?: string; model_url?: string; edit_model_url?: string; error?: string }
       if (!response.ok) throw new Error(payload.error || '任务状态读取失败')
       if (payload.status === 'scaling') updateAsset(assetId, { status: 'scaling', stageMessage: payload.stage_message || '正在按真实尺寸缩放…' })
       if (payload.status === 'generating') updateAsset(assetId, { status: 'generating', stageMessage: payload.stage_message || 'Rodin 正在生成独立 3D 模型…' })
-      if (payload.status === 'succeeded') { updateAsset(assetId, { status: 'succeeded', stageMessage: '生成完成，已按输入尺寸校准', modelUrl: payload.model_url }); onToast('3D 模型已完成真实尺度校准'); return }
+      if (payload.status === 'succeeded') { updateAsset(assetId, { status: 'succeeded', stageMessage: '生成完成，已按输入尺寸校准', modelUrl: payload.model_url, editModelUrl: payload.edit_model_url }); onToast('3D 模型已完成真实尺度校准'); return }
       if (payload.status === 'failed') throw new Error(payload.error || 'Rodin 生成失败')
     }
   }

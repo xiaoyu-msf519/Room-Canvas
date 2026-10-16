@@ -32,6 +32,7 @@ const presets = {
 
 export function Lighting() {
   const presetName = useRoomCanvasStore((state) => state.lightingPreset)
+  const mode = useRoomCanvasStore((state) => state.mode)
   const preset = presets[presetName]
   const { scene } = useThree()
 
@@ -45,11 +46,11 @@ export function Lighting() {
       <ambientLight color={preset.ambient} intensity={preset.ambientIntensity} />
       <hemisphereLight color={preset.ambient} groundColor="#1e2430" intensity={0.45} />
       <directionalLight
-        castShadow
+        castShadow={mode === 'play'}
         color={preset.sun}
         intensity={preset.sunIntensity}
         position={preset.position}
-        shadow-mapSize={[2048, 2048]}
+        shadow-mapSize={mode === 'play' ? [2048, 2048] : [512, 512]}
         shadow-camera-near={0.1}
         shadow-camera-far={35}
         shadow-camera-left={-12}

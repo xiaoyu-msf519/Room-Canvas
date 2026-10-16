@@ -1,0 +1,78 @@
+# RoomCanvas 本地扫描协议 v1
+
+## 清单与状态
+
+`manifest.json`：`schemaVersion=roomcanvas.scan.v1`，`id` 是扫描 UUID。`status` 为 capturing / processing / complete / interrupted / failed。只有 complete 表示最终场景处理完成；USDZ 等可选导出失败会记录在 warnings。
+
+`files` 是相对扫描目录的文件清单。`objectCount` / `frameCount` / `croppedObjectCount` 分别统计最终家具、已保存关键帧、至少有一张自动裁剪的家具。补充照片不冒充自动裁剪，不增加 croppedObjectCount。
+
+时间字段 `createdAt` 使用 ISO 8601；相机帧 `timestamp` 是 ARKit 会话的时间基准，不是 Unix 时间戳。
+
+## 场景与矩阵
+
+`scene.json`：`schemaVersion=roomcanvas.scene.v1`，`scanId` 对应 manifest.id；长度单位米，保持原始 ARKit 会话世界空间。右手坐标，Y 轴向上；未重新定位房间原点。
+
+所有矩阵都按 **column-major** 展平。4×4 矩阵的平移在索引 12 / 13 / 14，3×3 内参的 fx / fy / cx / cy 在 0 / 4 / 6 / 7。
+
+- `objectToWorld` 将家具局部坐标映射到世界坐标。
+- `surfaceToWorld` 将结构面的局部坐标映射到世界坐标。
+- `cameraToWorld` 将 ARKit 相机坐标映射到世界坐标。
+- `dimensions` 为家具局部 X / Y / Z 方向尺寸；不是世界空间 AABB。
+- `polygonCorners` 是结构面的局部平面坐标；曲线、类别关联等完整细节保留在原始 surface JSON。
+
+`roomplan.json`、`roomplan.raw.json` 和每个对象 / 表面的原始 JSON 使用 Apple 的 Codable 表示，不应与规范化的 RoomCanvas 协议混淆。opaque 原始数据用于相容 Apple 环境下的重新处理，不保证可在 Web 直接解释。
+
+Apple 的完整 `roomplan.json` 或 `roomplan.raw.json` 编码失败时，会在 warnings 中记录具体文件与字段，并继续尝试构建标准化场景。complete 保证 scene.json 和有效相机索引已写入，但不保证这两份 Apple 快照存在；原始快照缺失时不能通过原始数据重新整理。协议验证器要求缺失的快照有对应文件名的明确警告。
+
+## 相机与图像
+
+每帧保存原始分辨率、保存图像分辨率、K、cameraToWorld、trackingState、sharpness、可用光照估计、可选深度、是否手动请求。
+
+JSON 中的矩阵和时间戳必须是有限数值；无效帧单独跳过，不将 NaN/Infinity 改成字符串或伪造零坐标。非有限 sharpness 记为 0，非有限可选 lightIntensity 省略。新扫描开始即写入空 cameras.json；索引缺失或损坏时可从有效逐帧 JSON 恢复，不能从 JPEG 推导丢失的位姿。损坏索引先备份，失败扫描也可导出已有文件，但不会因此变为 complete。
+
+App 固定竖屏，原始相机图像旋转 90° 顺时针并缩小到最大边长 1920；JPEG 中已经实际完成旋转，查看方不应再重复套用 EXIF 旋转。
+
+`nativePixelToSavedPixel` 是 3×3 仿射矩阵，**内参 K 仍对应原始相机图像**。从原始像素坐标 `(u,v,1)` 左乘该矩阵，得到已保存 JPEG 像素坐标。保存尺寸为 W_saved / H_saved，原始为 W_native / H_native 时：
+
+```text
+sx = W_saved / H_native
+sy = H_saved / W_native
+u_saved = sx * (H_native - v_native)
+v_saved = sy * u_native
+```
+
+投影约定：家具角点先经 `inverse(cameraToWorld) * objectToWorld` 变到 ARKit 相机空间；ARKit 朝 -Z 看，因此转换为图像相机坐标 `(x, -y, -z)` 后再使用 K。对近裁面 z=0.05m 裁剪，不能把相机后方点直接除以 z。
+
+`sharpness` 是采样亮度拉普拉斯绝对值平均数，仅作为排序启发式，不是标准图像质量评分。
+
+## 家具图关联
+
+`objects/<object UUID>/metadata.json` 与 scene.objects 中对应对象的内容一致，包括类别、置信度、尺寸、变换、父 ID、原始参数路径、crops 和 supplementalImages。
+
+每个 `CropRecord`：
+
+- `frameId`：引用 cameras.json 的关键帧，可追溯到原始照片与相机参数。
+- `imagePath`：裁剪 JPEG。
+- `overlayPath`：源 JPEG 加绿色框。
+- `rectanglePixels=[x,y,width,height]`：已保存 JPEG 中的像素范围，左上角原点，带约 6% 边距且裁到图像内。
+- `visibleFraction`：包围框在图像内的面积比例，不含边距，不表示遮挡比例。
+- `score`：候选排序启发式。
+- `method=projected-3d-obb`，`reviewRequired=true`。
+
+选择最多三个视角，后续候选相机位置与已选位置需相距至少 0.2m。该规则不能保证视角一定优于其他候选，仍需人工看图。
+
+没有合适关键帧：`cropStatus=no-suitable-frame`、crops 为空，参数照常保存。有自动图：`cropStatus=needs-review`。
+
+`supplementalImages` 是用户通过系统照片选择器手动添加的照片，`source=user-selected-photo-no-camera-pose`，没有伪造相机标定；与自动裁剪分开存储。
+
+## 可选深度
+
+depthMap 使用紧密排列的小端 Float32、单位米；逐行移除 CVPixelBuffer 的 padding。可能含无效值。confidenceMap 是紧密排列的 UInt8，0 / 1 / 2 对应低 / 中 / 高置信度。
+
+深度保持原生相机方向，分辨率通常小于 RGB；使用时先把 K 缩放到深度分辨率，再按需要映射到保存 JPEG。当前裁剪算法没有用深度做遮挡判定。
+
+未提供 depth 时字段缺省或为 nil，不能据此推断 LiDAR 不存在；App 不修改 RoomPlan 管理的 AR 会话配置以强制开启该数据。
+
+## 完整性验证
+
+`python3 scripts/verify-export.py <ZIP 或目录>` 检查清单、UUID 关联、相机矩阵、文件存在性、裁剪范围、深度字节数及 ZIP CRC。检查通过只说明文件与引用一致，不能替代真实图像的方向、框选和识别精度检查。

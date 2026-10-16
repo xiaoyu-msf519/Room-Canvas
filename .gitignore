@@ -1,0 +1,47 @@
+# RoomCanvas: local environments and generated caches
+/env/
+/tmp/
+**/node_modules/
+
+# Private input materials may contain credentials
+/reference/ToCodex/API.md
+/reference/ToCodex/id_ed25519*
+
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+.envrc
+.npmrc
+.pypirc
+secrets.*
+credentials.*
+*credentials*.json
+*secrets*.json
+*secrets*.yaml
+*secrets*.yml
+*.local
+
+# Python / frontend build output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+coverage/
+*.egg-info/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

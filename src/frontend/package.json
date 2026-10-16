@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "verify:rotation": "node scripts/verify-ground-rotation.mjs",
+    "verify:scan": "node scripts/verify-scan-scene.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

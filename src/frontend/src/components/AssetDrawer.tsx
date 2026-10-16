@@ -76,7 +76,7 @@ export function AssetDrawer({ onToast }: AssetDrawerProps) {
       const payload = await response.json() as { status: UploadedAsset['status']; stage_message?: string; model_url?: string; edit_model_url?: string; error?: string }
       if (!response.ok) throw new Error(payload.error || '任务状态读取失败')
       if (payload.status === 'scaling') updateAsset(assetId, { status: 'scaling', stageMessage: payload.stage_message || '正在按真实尺寸缩放…' })
-      if (payload.status === 'generating') updateAsset(assetId, { status: 'generating', stageMessage: payload.stage_message || 'Rodin 正在生成独立 3D 模型…' })
+      if (payload.status === 'generating' || payload.status === 'queued') updateAsset(assetId, { status: payload.status, stageMessage: payload.stage_message || 'Rodin 正在生成独立 3D 模型…' })
       if (payload.status === 'succeeded') { updateAsset(assetId, { status: 'succeeded', stageMessage: '生成完成，已按输入尺寸校准', modelUrl: payload.model_url, editModelUrl: payload.edit_model_url }); onToast('3D 模型已完成真实尺度校准'); return }
       if (payload.status === 'failed') throw new Error(payload.error || 'Rodin 生成失败')
     }
@@ -121,7 +121,7 @@ export function AssetDrawer({ onToast }: AssetDrawerProps) {
       <div className="drawer-list-heading"><div><span>商品资产</span><em>{String(assets.length).padStart(2, '0')}</em></div><span>UPLOAD → RODIN → SCALE</span></div>
       {assets.length === 0 ? <div className="asset-empty"><PackageOpen size={24} /><span>暂无商品资产</span><small>从左侧拖拽款式图、Ctrl + V 粘贴截图或上传图片</small></div> : <div className="asset-cards">
         {assets.map((asset) => {
-          const input = getDimensions(asset), processing = ['uploading', 'generating', 'scaling'].includes(asset.status)
+          const input = getDimensions(asset), processing = ['queued', 'uploading', 'generating', 'scaling'].includes(asset.status)
           const draggable = asset.status === 'succeeded' && Boolean(asset.modelUrl && asset.dimensionsMm)
           return <article className={`asset-card ${processing ? 'is-processing' : ''} ${asset.status === 'succeeded' ? 'is-ready' : ''} ${draggable ? 'is-draggable' : ''}`} key={asset.id} draggable={draggable} onDragStart={(event) => { if (!draggable) return; event.dataTransfer.effectAllowed = 'copy'; event.dataTransfer.setData('text/plain', asset.id); setDraggingAssetId(asset.id) }} onDragEnd={() => setDraggingAssetId(null)}>
             <div className="asset-thumb"><img src={asset.previewUrl} alt={asset.name} /><button type="button" className="remove-asset" onClick={() => removeAsset(asset.id)} title="移除资产"><X size={12} /></button>{processing && <div className="asset-loading-shade"><span className="loading-spinner" /><small>{asset.status === 'scaling' ? 'SCALE' : 'RODIN'}</small></div>}</div>

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useGLTF } from '@react-three/drei'
 import type { Object3D } from 'three'
 import { Box3, Group, Vector3 } from 'three'
@@ -63,7 +63,7 @@ function LowProxy({ size }: { size: Vec3 }) {
 }
 
 function FurnitureVisual({ modelUrl, size }: { modelUrl?: string; size: Vec3 }) {
-  return modelUrl ? <ModelObject modelUrl={modelUrl} size={size} /> : <LowProxy size={size} />
+  return <Suspense fallback={<LowProxy size={size} />}>{modelUrl ? <ModelObject modelUrl={modelUrl} size={size} /> : <LowProxy size={size} />}</Suspense>
 }
 
 function FurnitureObject({ item }: { item: FurnitureItem }) {
@@ -94,7 +94,7 @@ function FurnitureObject({ item }: { item: FurnitureItem }) {
     const group = groupRef.current
     if (!group) return
     group.quaternion.copy(groundRotation(group.quaternion))
-    const nextPosition: Vec3 = [group.position.x, item.size[1] / 2, group.position.z]
+    const nextPosition: Vec3 = [group.position.x, item.position[1], group.position.z]
     const nextRotation: FurnitureItem['rotation'] = [group.quaternion.x, group.quaternion.y, group.quaternion.z, group.quaternion.w]
     group.position.y = nextPosition[1]
     group.scale.set(1, 1, 1)
@@ -117,7 +117,7 @@ function FurnitureObject({ item }: { item: FurnitureItem }) {
     {group}
     {selected && mode === 'edit' && <FurnitureGizmo
       target={groupRef}
-      height={item.size[1]}
+      height={item.position[1] * 2}
       onDragStart={() => setIsTransforming(true)}
       onDragEnd={commitTransform}
     />}
@@ -139,9 +139,17 @@ export function FurnitureModels() {
   const furnitureList = useRoomCanvasStore((state) => state.furnitureList)
   const draggingAssetId = useRoomCanvasStore((state) => state.draggingAssetId)
   const asset = useRoomCanvasStore((state) => state.uploadedAssets.find((item) => item.id === draggingAssetId))
+  const showWireframe = useRoomCanvasStore((state) => state.showWireframe)
   return <>
     {furnitureList.map((item) => <FurnitureObject key={item.id} item={item} />)}
     {asset && <PlacementPreview asset={asset} />}
+    {showWireframe && furnitureList.filter((item) => item.originalBounds).map((item) => {
+      const bounds = item.originalBounds!
+      return <mesh key={`original-${item.id}`} position={bounds.position} quaternion={bounds.rotation}>
+        <boxGeometry args={bounds.size} />
+        <meshBasicMaterial color="#f6aa72" wireframe transparent opacity={0.45} depthWrite={false} />
+      </mesh>
+    })}
   </>
 }
 

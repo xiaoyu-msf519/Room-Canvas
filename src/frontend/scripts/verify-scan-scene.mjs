@@ -1,0 +1,52 @@
+import assert from 'node:assert/strict'
+import React from 'react'
+import { createRequire } from 'node:module'
+import { create, act } from '@react-three/test-renderer'
+import { createServer } from 'vite'
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true
+const { Box3, Vector3 } = createRequire(import.meta.url)('three')
+const scene = await fetch('http://127.0.0.1:8000/api/scenes/latest').then((r) => r.json())
+const vite = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true }, appType: 'custom' })
+let renderer
+try {
+  const { useRoomCanvasStore } = await vite.ssrLoadModule('/src/state/useRoomCanvasStore.ts')
+  const { ScannedRoom } = await vite.ssrLoadModule('/src/scene/ScannedRoom.tsx')
+  const { createWalkFloor, createWalkObstacles, findWalkSpawn, canStandAt } = await vite.ssrLoadModule('/src/scene/navigation.ts')
+  useRoomCanvasStore.getState().applyScan(scene)
+  renderer = await create(React.createElement(ScannedRoom))
+  renderer.scene.instance.updateMatrixWorld(true)
+  const walls = renderer.scene.findAll((node) => node.instance.name === 'scan-wall')
+  const floors = renderer.scene.findAll((node) => node.instance.name === 'scan-floor')
+  assert.equal(walls.length, scene.room.surfaces.filter((item) => item.kind === 'wall').length)
+  assert.equal(floors.length, 1)
+  const floorBounds = new Box3().setFromObject(floors[0].instance)
+  assert.ok(Math.abs(floorBounds.min.y) < 0.0001 && Math.abs(floorBounds.max.y) < 0.0001, 'Floor is not at Y=0')
+  assert.ok(floorBounds.getSize(new Vector3()).x > 10, 'Room geometry is blank or incorrectly scaled')
+  const colliders = createWalkObstacles([...scene.room.colliders, ...scene.furniture])
+  const floor = createWalkFloor(scene.room.surfaces)
+  const spawn = findWalkSpawn(colliders, floor)
+  assert.ok(spawn, 'There is no valid walk spawn in the scanned room')
+  assert.ok(canStandAt(spawn.x, spawn.z, colliders, floor))
+  assert.equal(canStandAt(100, 100, colliders, floor), false)
+  const wall = scene.room.colliders[0]
+  assert.equal(canStandAt(wall.position[0], wall.position[2], colliders, floor), false, 'Wall collision is not active')
+
+  // A reconstruction poll must update model URLs without undoing edits.
+  const item = scene.furniture[0]
+  const moved = [1.1, item.position[1], 0.9]
+  const rotated = [0, Math.sin(0.4), 0, Math.cos(0.4)]
+  useRoomCanvasStore.getState().updateFurniture(item.id, { position: moved, rotation: rotated })
+  const updated = structuredClone(scene)
+  updated.furniture[0].modelUrl = '/api/assets/test-completed.glb'
+  updated.furniture[0].generationStatus = 'succeeded'
+  await act(async () => useRoomCanvasStore.getState().applyScan(updated))
+  const actual = useRoomCanvasStore.getState().furnitureList[0]
+  assert.deepEqual(actual.position, moved)
+  assert.deepEqual(actual.rotation, rotated)
+  assert.equal(actual.modelUrl, '/api/assets/test-completed.glb')
+  console.log(`PASS: actual ScannedRoom, ${walls.length} wall panels, polygon floor at Y=0; valid spawn/collisions, persistent edits during model replacement.`)
+} finally {
+  if (renderer) await renderer.unmount()
+  await vite.close()
+}

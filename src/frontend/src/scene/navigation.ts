@@ -1,7 +1,7 @@
-import { Box3, Matrix3, Matrix4, PerspectiveCamera, Quaternion, Vector3 } from 'three'
+import { Box3, Matrix3, Matrix4, PerspectiveCamera, Quaternion, ShapeUtils, Triangle, Vector2, Vector3 } from 'three'
 import type { Camera } from 'three'
 import { OBB } from 'three/examples/jsm/math/OBB.js'
-import type { SceneCollider } from '../types/scene'
+import type { RoomSurface, SceneCollider } from '../types/scene'
 
 export const EYE_HEIGHT = 1.7
 export const WALK_LIMIT = 9.7
@@ -37,8 +37,22 @@ export function createWalkObstacles(colliders: SceneCollider[]) {
   ))
 }
 
-export function canStandAt(x: number, z: number, obstacles: OBB[]) {
-  if (Math.abs(x) > WALK_LIMIT || Math.abs(z) > WALK_LIMIT) return false
+export function createWalkFloor(surfaces: RoomSurface[]): Triangle[] {
+  return surfaces.filter((surface) => surface.kind === 'floor').flatMap((floor) => {
+    const vertices = (floor.polygonCorners ?? []).map(([x, y]) => new Vector2(x, y))
+    const transform = new Matrix4().compose(new Vector3(...floor.position), new Quaternion(...floor.rotation), new Vector3(1, 1, 1))
+    const points = vertices.map(({ x, y }) => {
+      const world = new Vector3(x, y, 0).applyMatrix4(transform)
+      return new Vector3(world.x, 0, world.z)
+    })
+    return ShapeUtils.triangulateShape(vertices, []).map(([a, b, c]) => new Triangle(points[a], points[b], points[c]))
+  })
+}
+
+export function canStandAt(x: number, z: number, obstacles: OBB[], floor: Triangle[] = []) {
+  if (floor.length) {
+    if (!floor.some((triangle) => triangle.containsPoint(new Vector3(x, 0, z)))) return false
+  } else if (Math.abs(x) > WALK_LIMIT || Math.abs(z) > WALK_LIMIT) return false
   // Test the body volume, not just the eye point: low furniture also blocks walking.
   const body = new Box3(
     new Vector3(x - PLAYER_RADIUS, 0.02, z - PLAYER_RADIUS),
@@ -47,8 +61,8 @@ export function canStandAt(x: number, z: number, obstacles: OBB[]) {
   return !obstacles.some((obstacle) => obstacle.intersectsBox3(body))
 }
 
-export function findWalkSpawn(obstacles: OBB[]) {
-  if (canStandAt(0, 0, obstacles)) return new Vector3(0, EYE_HEIGHT, 0)
+export function findWalkSpawn(obstacles: OBB[], floor: Triangle[] = []) {
+  if (canStandAt(0, 0, obstacles, floor)) return new Vector3(0, EYE_HEIGHT, 0)
   // Prefer the smallest displacement from the room origin, in 25cm steps.
   for (let radius = 0.25; radius <= WALK_LIMIT * Math.SQRT2; radius += 0.25) {
     const samples = Math.ceil(2 * Math.PI * radius / 0.25)
@@ -56,7 +70,7 @@ export function findWalkSpawn(obstacles: OBB[]) {
       const angle = sample / samples * Math.PI * 2
       const x = Math.cos(angle) * radius
       const z = Math.sin(angle) * radius
-      if (canStandAt(x, z, obstacles)) return new Vector3(x, EYE_HEIGHT, z)
+      if (canStandAt(x, z, obstacles, floor)) return new Vector3(x, EYE_HEIGHT, z)
     }
   }
   return null

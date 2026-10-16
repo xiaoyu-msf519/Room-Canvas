@@ -1,6 +1,6 @@
-import { useRef, type DragEvent } from 'react'
+import { useRef, useLayoutEffect, useMemo, type DragEvent } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
-import type { MutableRefObject } from 'react'
+import type { MutableRefObject, RefObject } from 'react'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import type { Camera, WebGLRenderer } from 'three'
 import { Plane, Raycaster, Vector2, Vector3 } from 'three'
@@ -9,6 +9,8 @@ import { EditCameraController, PlayCameraController } from './CameraControllers'
 import { EmptyRoom } from './EmptyRoom'
 import { FurnitureModels } from './FurnitureModels'
 import { Lighting } from './Lighting'
+import { ScannedRoom } from './ScannedRoom'
+import { createWalkFloor } from './navigation'
 
 function SceneViewportBridge({ cameraRef, rendererRef }: { cameraRef: MutableRefObject<Camera | null>; rendererRef: MutableRefObject<WebGLRenderer | null> }) {
   const { camera, gl } = useThree()
@@ -28,6 +30,10 @@ export function SceneCanvas() {
   const controlsRef = useRef<OrbitControlsImpl>(null)
   const cameraRef = useRef<Camera | null>(null)
   const rendererRef = useRef<WebGLRenderer | null>(null)
+  const scan = useRoomCanvasStore((state) => state.scan)
+
+  const placeBounds = scan?.room
+  const floorTriangles = useMemo(() => createWalkFloor(scan?.room.surfaces ?? []), [scan?.room.surfaces])
 
   const groundPoint = (clientX: number, clientY: number) => {
     const camera = cameraRef.current
@@ -37,9 +43,11 @@ export function SceneCanvas() {
     const pointer = new Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
     const raycaster = new Raycaster()
     raycaster.setFromCamera(pointer, camera)
-    const point = raycaster.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), 0), new Vector3())
+    const point = floorTriangles.length
+      ? floorTriangles.map((triangle) => raycaster.ray.intersectTriangle(triangle.a, triangle.b, triangle.c, false, new Vector3())).find(Boolean)
+      : raycaster.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), 0), new Vector3())
     if (!point) return null
-    return [Math.max(-4.8, Math.min(4.8, point.x)), 0, Math.max(-4.8, Math.min(4.8, point.z))] as [number, number, number]
+    return [Math.max(placeBounds?.min[0] ?? -4.8, Math.min(placeBounds?.max[0] ?? 4.8, point.x)), 0, Math.max(placeBounds?.min[2] ?? -4.8, Math.min(placeBounds?.max[2] ?? 4.8, point.z))] as [number, number, number]
   }
 
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {
@@ -76,6 +84,8 @@ export function SceneCanvas() {
         <color attach="background" args={["#c7d5db"]} />
         <Lighting />
         <EmptyRoom />
+        <ScannedRoom />
+        <ScanCameraFit controlsRef={controlsRef} />
         <SceneViewportBridge cameraRef={cameraRef} rendererRef={rendererRef} />
         <FurnitureModels />
         <EditCameraController controlsRef={controlsRef} />
@@ -83,4 +93,18 @@ export function SceneCanvas() {
       </Canvas>
     </div>
   )
+}
+
+function ScanCameraFit({ controlsRef }: { controlsRef: RefObject<OrbitControlsImpl> }) {
+  const scan = useRoomCanvasStore((state) => state.scan)
+  const { camera } = useThree()
+  useLayoutEffect(() => {
+    if (!scan) return
+    const radius = Math.max(scan.room.bounds[0], scan.room.bounds[2], 5)
+    camera.position.set(radius * 0.65, radius * 0.65, radius * 0.85)
+    controlsRef.current?.target.set(0, 0.8, 0)
+    camera.lookAt(0, 0.8, 0)
+    controlsRef.current?.update()
+  }, [scan?.id, camera, controlsRef])
+  return null
 }

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { FurnitureItem, SceneCollider, UploadedAsset, Vec3 } from '../types/scene'
+import type { FurnitureItem, SceneCollider, SceneManifest, UploadedAsset, Vec3 } from '../types/scene'
 
 export type RoomMode = 'edit' | 'play'
 export type LightingPreset = 'morning' | 'sunset' | 'night'
@@ -10,6 +10,8 @@ interface RoomCanvasState {
   lightingPreset: LightingPreset
   furnitureList: FurnitureItem[]
   roomColliders: SceneCollider[]
+  scan: SceneManifest | null
+  applyScan: (scan: SceneManifest) => void
   selectedId: string | null
   isTransforming: boolean
   uploadedAssets: UploadedAsset[]
@@ -35,6 +37,19 @@ export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
   lightingPreset: 'morning',
   furnitureList: [],
   roomColliders: [],
+  scan: null,
+  applyScan: (scan) => set((state) => {
+    const sameScene = state.scan?.id === scan.id
+    const originals = scan.furniture.map((item) => {
+      const current = sameScene ? state.furnitureList.find((entry) => entry.id === item.id) : null
+      return current ? { ...item, position: current.position, rotation: current.rotation, size: current.size } : item
+    })
+    return {
+      scan, roomColliders: scan.room.colliders ?? [],
+      furnitureList: [...originals, ...state.furnitureList.filter((item) => item.kind === 'imported')],
+      ...(sameScene ? {} : { mode: 'edit', selectedId: null }),
+    }
+  }),
   selectedId: null,
   isTransforming: false,
   uploadedAssets: [],

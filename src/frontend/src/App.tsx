@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { SceneCanvas } from './scene/SceneCanvas'
 import { HudLayout } from './components/HudLayout'
+import { useScanSync } from './state/useScanSync'
 
 export default function App() {
+  useScanSync()
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {

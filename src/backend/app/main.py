@@ -16,6 +16,7 @@ import trimesh
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from .scan_routes import register_scan_routes
 
 ROOT = Path(__file__).resolve().parents[3]
 TMP_ROOT = ROOT / "tmp"
@@ -40,7 +41,10 @@ class GenerationJob:
     depth_mm: float = 0
     height_mm: float = 0
     model_url: str | None = None
+    edit_model_url: str | None = None
     error: str | None = None
+    source_path: str | None = field(default=None, repr=False)
+    prompt: str | None = field(default=None, repr=False)
     subscription_key: str | None = field(default=None, repr=False)
     task_uuid: str | None = field(default=None, repr=False)
 
@@ -48,6 +52,8 @@ class GenerationJob:
         payload = asdict(self)
         payload.pop("subscription_key", None)
         payload.pop("task_uuid", None)
+        payload.pop("source_path", None)
+        payload.pop("prompt", None)
         return payload
 
 
@@ -60,6 +66,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 jobs: dict[str, GenerationJob] = {}
+generation_slots = asyncio.Semaphore(2)
+active_tasks: set[asyncio.Task] = set()
+
+
+def start_generation(asset_id: str, name: str, source: Path, content_type: str,
+                     width_mm: float, depth_mm: float, height_mm: float, prompt: str = "") -> GenerationJob:
+    job = GenerationJob(uuid.uuid4().hex, asset_id, name, status="queued", stage_message="等待重建…",
+                        width_mm=width_mm, depth_mm=depth_mm, height_mm=height_mm,
+                        source_path=str(source), prompt=prompt)
+    jobs[job.job_id] = job
+    _write_job(job)
+    schedule(job, source, content_type)
+    return job
+
+
+def schedule(job: GenerationJob, source: Path, content_type: str) -> None:
+    async def run():
+        async with generation_slots:
+            await _run_generation(job, source, content_type)
+    task = asyncio.create_task(run())
+    active_tasks.add(task)
+    task.add_done_callback(active_tasks.discard)
+
+
+@app.on_event("startup")
+async def resume_generations() -> None:
+    for path in JOB_ROOT.glob("*.json"):
+        job = _read_job(path.stem)
+        if job and job.status in ("queued", "generating", "scaling") and job.source_path:
+            if job.status == "generating" and not job.task_uuid:
+                job.status, job.error = "failed", "提交中断，无法确认远端受理状态；请核对后重试"
+                _write_job(job)
+            else:
+                schedule(job, Path(job.source_path), "image/jpeg")
 
 
 @app.get("/api/health")
@@ -94,11 +134,8 @@ async def create_generation(
                 raise HTTPException(status_code=413, detail="图片不能超过 15 MB")
             output.write(chunk)
 
-    job = GenerationJob(job_id, asset_id, name, width_mm=width_mm, depth_mm=depth_mm, height_mm=height_mm)
-    jobs[job_id] = job
-    _write_job(job)
-    asyncio.create_task(_run_generation(job, source_path, image.content_type))
-    return {"job_id": job_id, "status": job.status, "stage_message": job.stage_message}
+    job = start_generation(asset_id, name, source_path, image.content_type, width_mm, depth_mm, height_mm)
+    return {"job_id": job.job_id, "status": job.status, "stage_message": job.stage_message}
 
 
 @app.get("/api/jobs/{job_id}")
@@ -127,9 +164,11 @@ async def _run_generation(job: GenerationJob, source_path: Path, content_type: s
         job.status = "generating"
         job.stage_message = "Rodin 正在生成独立 3D 模型…"
         _write_job(job)
-        submitted = await _submit_rodin(api_key, source_path, content_type)
-        job.subscription_key = submitted["subscription_key"]
-        job.task_uuid = submitted["task_uuid"]
+        if not job.task_uuid:
+            submitted = await _submit_rodin(api_key, source_path, content_type, job.prompt)
+            job.subscription_key = submitted["subscription_key"]
+            job.task_uuid = submitted["task_uuid"]
+            _write_job(job)
         await _wait_for_rodin(job, api_key)
 
         job.status = "scaling"
@@ -138,6 +177,11 @@ async def _run_generation(job: GenerationJob, source_path: Path, content_type: s
         raw_path = await _download_rodin(api_key, job.task_uuid, job.job_id)
         scaled_path = MODEL_ROOT / f"{job.job_id}.glb"
         await asyncio.to_thread(_scale_glb, raw_path, scaled_path, job.width_mm, job.depth_mm, job.height_mm)
+        job.stage_message = "生成编辑低模…"
+        _write_job(job)
+        low_path = MODEL_ROOT / f"{job.job_id}-edit.glb"
+        await _create_edit_model(scaled_path, low_path)
+        job.edit_model_url = f"/api/assets/{low_path.name}"
         job.status = "succeeded"
         job.stage_message = "生成完成，已按输入尺寸校准"
         job.model_url = f"/api/assets/{scaled_path.name}"
@@ -149,7 +193,7 @@ async def _run_generation(job: GenerationJob, source_path: Path, content_type: s
         _write_job(job)
 
 
-async def _submit_rodin(api_key: str, source_path: Path, content_type: str) -> dict[str, str]:
+async def _submit_rodin(api_key: str, source_path: Path, content_type: str, prompt: str | None = None) -> dict[str, str]:
     headers = {"Authorization": f"Bearer {api_key}"}
     # Explicitly request a textured GLB. Rodin's default texture mode follows
     # the tier, but keeping it explicit prevents a future schema/default change
@@ -161,6 +205,8 @@ async def _submit_rodin(api_key: str, source_path: Path, content_type: str) -> d
         "geometry_file_format": "glb",
         "texture_mode": os.getenv("RODIN_TEXTURE_MODE", "high"),
     }
+    if prompt:
+        data["prompt"] = prompt
     verify_tls = os.getenv("RODIN_VERIFY_TLS", "1") != "0"
     async with httpx.AsyncClient(timeout=60, verify=verify_tls) as client:
         with source_path.open("rb") as source:
@@ -174,7 +220,7 @@ async def _submit_rodin(api_key: str, source_path: Path, content_type: str) -> d
         payload = response.json()
     task_uuid = payload.get("uuid")
     subscription_key = (payload.get("jobs") or {}).get("subscription_key")
-    if not task_uuid or not subscription_key:
+    if payload.get("error") or not task_uuid or not subscription_key:
         raise RuntimeError("Rodin 未返回有效任务标识")
     return {"task_uuid": task_uuid, "subscription_key": subscription_key}
 
@@ -210,7 +256,7 @@ async def _download_rodin(api_key: str, task_uuid: str | None, job_id: str) -> P
     if not task_uuid:
         raise RuntimeError("缺少 Rodin task_uuid")
     verify_tls = os.getenv("RODIN_VERIFY_TLS", "1") != "0"
-    async with httpx.AsyncClient(timeout=120, verify=verify_tls) as client:
+    async with httpx.AsyncClient(timeout=120, verify=verify_tls, follow_redirects=True) as client:
         response = await client.post(
             f"{RODIN_BASE_URL}/download",
             headers={"Authorization": f"Bearer {api_key}"},
@@ -237,7 +283,7 @@ async def _download_rodin(api_key: str, task_uuid: str | None, job_id: str) -> P
             with archive.open(glb_names[0]) as source, extracted.open("wb") as target:
                 shutil.copyfileobj(source, target)
         return extracted
-    raw_path.rename(raw_path.with_suffix(".glb"))
+    raw_path.replace(raw_path.with_suffix(".glb"))
     return raw_path.with_suffix(".glb")
 
 
@@ -289,6 +335,8 @@ def _scale_glb(source_path: Path, target_path: Path, width_mm: float, depth_mm: 
             document = json.loads(chunk.rstrip(b" \t\r\n").decode("utf-8"))
     if json_chunk_index < 0 or document is None:
         raise RuntimeError("GLB 缺少 JSON chunk")
+    if not document.get("images") or not document.get("textures"):
+        raise RuntimeError("Rodin 返回的 GLB 缺少纹理，已保留原框；请检查生成结果")
 
     scenes = document.get("scenes") or []
     scene_index = int(document.get("scene", 0))
@@ -315,11 +363,25 @@ def _scale_glb(source_path: Path, target_path: Path, width_mm: float, depth_mm: 
     target_path.write_bytes(output)
 
 
+async def _create_edit_model(source: Path, target: Path) -> None:
+    script = ROOT / "src" / "backend" / "scripts" / "create-edit-model.mjs"
+    process = await asyncio.create_subprocess_exec("node", str(script), str(source), str(target),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    _, error = await process.communicate()
+    if process.returncode:
+        raise RuntimeError("编辑低模处理失败: " + error.decode("utf-8", errors="replace")[-300:])
+
+
 def _write_job(job: GenerationJob) -> None:
-    (JOB_ROOT / f"{job.job_id}.json").write_text(json.dumps(job.public(), ensure_ascii=False, indent=2), encoding="utf-8")
+    from .scans import write_json
+    write_json(JOB_ROOT / f"{job.job_id}.json", asdict(job))
 
 
 def _read_job(job_id: str) -> GenerationJob | None:
+    if not job_id:
+        return None
+    if job_id in jobs:
+        return jobs[job_id]
     path = JOB_ROOT / f"{Path(job_id).name}.json"
     if not path.is_file():
         return None
@@ -327,3 +389,6 @@ def _read_job(job_id: str) -> GenerationJob | None:
     job = GenerationJob(**{key: value for key, value in payload.items() if key in GenerationJob.__dataclass_fields__})
     jobs[job_id] = job
     return job
+
+
+register_scan_routes(app, ROOT, start_generation, _read_job)

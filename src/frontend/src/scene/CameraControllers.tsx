@@ -4,7 +4,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { Euler, PerspectiveCamera, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
-import { canStandAt, captureEditorView, createWalkObstacles, EYE_HEIGHT, findWalkSpawn, restoreEditorView, setWalkFocus } from './navigation'
+import { canStandAt, captureEditorView, createWalkFloor, createWalkObstacles, EYE_HEIGHT, findWalkSpawn, restoreEditorView, setWalkFocus } from './navigation'
 import { bindPlayExit } from './playExit'
 
 type ControlsRef = RefObject<OrbitControlsImpl>
@@ -61,6 +61,8 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
   const setMode = useRoomCanvasStore((state) => state.setMode)
   const furnitureList = useRoomCanvasStore((state) => state.furnitureList)
   const roomColliders = useRoomCanvasStore((state) => state.roomColliders)
+  const surfaces = useRoomCanvasStore((state) => state.scan?.room.surfaces)
+  const floor = useMemo(() => createWalkFloor(surfaces ?? []), [surfaces])
   const obstacles = useMemo(() => createWalkObstacles([...roomColliders, ...furnitureList]), [furnitureList, roomColliders])
   const { camera, gl } = useThree()
   const keys = useRef(new Set<string>())
@@ -109,7 +111,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       keys.current.clear()
       pendingLook.current.x = 0
       pendingLook.current.y = 0
-      const spawn = findWalkSpawn(obstacles)
+      const spawn = findWalkSpawn(obstacles, floor)
       if (!spawn) {
         setMode('edit')
         return
@@ -140,7 +142,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
       if (controls) controls.enabled = true
     }
     lastMode.current = mode
-  }, [camera, controlsRef, gl.domElement, mode, obstacles, releaseFocus, setMode])
+  }, [camera, controlsRef, gl.domElement, mode, obstacles, floor, releaseFocus, setMode])
 
   useEffect(() => {
     const element = gl.domElement
@@ -270,8 +272,8 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
     const step = speed * Math.min(delta, 0.05) / length
     const nextX = camera.position.x + (forwardX * forward + rightX * strafe) * step
     const nextZ = camera.position.z + (forwardZ * forward + rightZ * strafe) * step
-    if (canStandAt(nextX, camera.position.z, obstacles)) camera.position.x = nextX
-    if (canStandAt(camera.position.x, nextZ, obstacles)) camera.position.z = nextZ
+    if (canStandAt(nextX, camera.position.z, obstacles, floor)) camera.position.x = nextX
+    if (canStandAt(camera.position.x, nextZ, obstacles, floor)) camera.position.z = nextZ
   })
 
   return null

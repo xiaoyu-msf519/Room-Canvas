@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { DoubleSide, Shape, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
@@ -27,9 +27,21 @@ export function ScannedRoom() {
   const geometryKey = JSON.stringify(scan?.room.surfaces ?? [])
   const visuals = useMemo(() => createWallVisuals(JSON.parse(geometryKey)), [geometryKey])
   const cameraPosition = useMemo(() => new Vector3(), [])
+  const reducedMotion = useRef(false)
   const updateWalls = () => visuals.update(camera.getWorldPosition(cameraPosition), edit, useRoomCanvasStore.getState().furnitureList)
-  useFrame(updateWalls)
+  useFrame((_, delta) => {
+    updateWalls()
+    visuals.advance(delta, reducedMotion.current)
+  })
   useLayoutEffect(updateWalls, [edit, camera, visuals, cameraPosition])
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const sync = () => { reducedMotion.current = preference.matches }
+    sync()
+    preference.addEventListener('change', sync)
+    return () => preference.removeEventListener('change', sync)
+  }, [])
   useEffect(() => () => visuals.dispose(), [visuals])
   if (!scan) return null
   return <group name="scanned-room">

@@ -1,9 +1,12 @@
 import { Box3, Matrix4, MeshStandardMaterial, Quaternion, Ray, Vector3 } from 'three'
+import { Easing } from 'three/examples/jsm/libs/tween.module.js'
 import type { Triangle } from 'three'
 import type { RoomSurface, SceneCollider } from '../types/scene'
 import { createWalkFloor } from './navigation'
 
 export const CUTAWAY_OPACITY = 0.18
+export const WALL_FADE_SECONDS = 0.5
+const REDUCED_FADE_SECONDS = 0.2
 const NO_FURNITURE: SceneCollider[] = []
 
 export interface WallFacing {
@@ -138,6 +141,7 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
     facing: createWallFacing(surface, floor),
     occluder: createWallOccluder(surface),
     material: new MeshStandardMaterial({ color: '#d6dadb', roughness: 0.92 }),
+    fade: { from: 1, target: 1, elapsed: WALL_FADE_SECONDS },
   }))
   const interiorTargets = createInteriorTargets(surfaces, floor, walls.map((wall) => wall.occluder))
   const ceiling = Math.max(...walls.map(({ surface }) => surface.position[1] + surface.size[1] / 2))
@@ -145,6 +149,15 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
   let lastEdit: boolean | undefined
   let lastFurniture: SceneCollider[] | undefined
   let furnitureTargets: Vector3[] = []
+  const applyOpacity = (wall: typeof walls[number], opacity: number) => {
+    const transparent = opacity < 1
+    if (wall.material.transparent !== transparent) {
+      wall.material.transparent = transparent
+      wall.material.needsUpdate = true
+    }
+    wall.material.opacity = opacity
+    wall.material.depthWrite = !transparent
+  }
   return {
     walls,
     update(camera: Vector3, edit: boolean, furniture: SceneCollider[] = NO_FURNITURE) {
@@ -161,13 +174,24 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
           furnitureTargets.some((target) => wall.occluder.blocks(camera, target)) ||
           interiorTargets.some((target) => wall.occluder.blocks(camera, target))
         )) opacity = CUTAWAY_OPACITY
-        const transparent = opacity < 0.999
-        if (wall.material.transparent !== transparent) {
-          wall.material.transparent = transparent
-          wall.material.needsUpdate = true
+        if (!edit) {
+          // Play must be solid immediately, even if Edit was mid-transition.
+          wall.fade = { from: 1, target: 1, elapsed: WALL_FADE_SECONDS }
+          applyOpacity(wall, 1)
+        } else if (Math.abs(wall.fade.target - opacity) > 0.000001) {
+          wall.fade = { from: wall.material.opacity, target: opacity, elapsed: 0 }
         }
-        wall.material.opacity = transparent ? opacity : 1
-        wall.material.depthWrite = !transparent
+      }
+    },
+    advance(deltaSeconds: number, reducedMotion = false) {
+      const duration = reducedMotion ? REDUCED_FADE_SECONDS : WALL_FADE_SECONDS
+      for (const wall of walls) {
+        if (wall.material.opacity === wall.fade.target) continue
+        wall.fade.elapsed = Math.min(duration, wall.fade.elapsed + Math.max(0, deltaSeconds))
+        const progress = wall.fade.elapsed / duration
+        const opacity = progress >= 1 - 1e-8 ? wall.fade.target :
+          wall.fade.from + (wall.fade.target - wall.fade.from) * Easing.Cubic.Out(progress)
+        applyOpacity(wall, opacity)
       }
     },
     dispose() { walls.forEach((wall) => wall.material.dispose()) },

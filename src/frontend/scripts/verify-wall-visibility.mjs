@@ -10,7 +10,7 @@ const { Quaternion, Vector3 } = createRequire(import.meta.url)('three')
 const vite = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true }, appType: 'custom' })
 let renderer
 try {
-  const { createWallFacing, createWallOccluder, createWallVisuals, isInsideFloor, wallOpacityAt, CUTAWAY_OPACITY } = await vite.ssrLoadModule('/src/scene/wallVisibility.ts')
+  const { createWallFacing, createWallOccluder, createWallVisuals, isInsideFloor, wallOpacityAt, CUTAWAY_OPACITY, WALL_FADE_SECONDS } = await vite.ssrLoadModule('/src/scene/wallVisibility.ts')
   const { createWalkFloor } = await vite.ssrLoadModule('/src/scene/navigation.ts')
   const { ScannedRoom } = await vite.ssrLoadModule('/src/scene/ScannedRoom.tsx')
   const { useRoomCanvasStore } = await vite.ssrLoadModule('/src/state/useRoomCanvasStore.ts')
@@ -39,12 +39,63 @@ try {
   assert.equal(createWallFacing(north, []).resolved, false)
 
   const visuals = createWallVisuals(surfaces)
+  const northCamera = new Vector3(0, 4, 6)
+  const southCamera = new Vector3(0, 4, -6)
+  const fadingNorth = visuals.walls[0].material
+  visuals.update(northCamera, true)
+  assert.equal(fadingNorth.opacity, 1, 'Visibility change jumped to the target instead of fading')
+  visuals.advance(0.1)
+  const partial = fadingNorth.opacity
+  assert.ok(partial < 1 && partial > CUTAWAY_OPACITY, 'Intermediate fade-out opacity is missing')
+  assert.equal(fadingNorth.transparent, true)
+  assert.equal(fadingNorth.depthWrite, false)
+  visuals.advance(WALL_FADE_SECONDS - 0.1)
+  assert.equal(fadingNorth.opacity, CUTAWAY_OPACITY, 'Stationary camera prevented the fade from completing')
+  visuals.update(southCamera, true)
+  assert.equal(fadingNorth.opacity, CUTAWAY_OPACITY, 'Fade-in jumped on start')
+  visuals.advance(0.25)
+  assert.ok(fadingNorth.opacity > CUTAWAY_OPACITY && fadingNorth.opacity < 1)
+  assert.equal(fadingNorth.depthWrite, false, 'Wall started writing depth before becoming fully opaque')
+  const interrupted = fadingNorth.opacity
+  visuals.update(northCamera, true)
+  assert.equal(fadingNorth.opacity, interrupted, 'Reversing the camera restarted the opacity from an endpoint')
+  visuals.advance(0.01)
+  assert.ok(fadingNorth.opacity < interrupted, 'Interrupted fade did not change direction')
+  visuals.advance(0.49)
+  assert.equal(fadingNorth.opacity, CUTAWAY_OPACITY)
+  visuals.update(southCamera, true)
+  visuals.advance(WALL_FADE_SECONDS)
+  assert.equal(fadingNorth.opacity, 1)
+  assert.equal(fadingNorth.transparent, false)
+  assert.equal(fadingNorth.depthWrite, true)
+  visuals.update(northCamera, true)
+  visuals.advance(0.1)
+  visuals.update(northCamera, false)
+  assert.ok(visuals.walls.every((wall) => wall.material.opacity === 1 && wall.material.depthWrite), 'Play did not cancel an unfinished fade immediately')
+  visuals.advance(1)
+  assert.ok(visuals.walls.every((wall) => wall.material.opacity === 1), 'Cancelled Edit fade leaked into Play')
+  visuals.update(northCamera, true)
+  visuals.advance(0.1, true)
+  assert.ok(fadingNorth.opacity > CUTAWAY_OPACITY && fadingNorth.opacity < 1)
+  visuals.advance(0.1, true)
+  assert.equal(fadingNorth.opacity, CUTAWAY_OPACITY, 'Reduced-motion fade did not finish in 0.2s')
+  for (const fps of [30, 60, 120]) {
+    const sample = createWallVisuals(surfaces)
+    sample.update(northCamera, true)
+    for (let frame = 0; frame < fps / 2; frame++) {
+      sample.update(northCamera, true)
+      sample.advance(1 / fps)
+    }
+    assert.equal(sample.walls[0].material.opacity, CUTAWAY_OPACITY, `Fade duration depends on frame rate: ${fps}fps`)
+    sample.dispose()
+  }
   for (const [position, fadedIds] of [
     [[0, 4, 6], ['north']], [[0, 4, -6], ['south']],
     [[6, 4, 0], ['east']], [[-6, 4, 0], ['west']],
     [[6, 4, 6], ['north', 'east']], [[0, 1.7, 0], []], [[0, 8, 0], []],
   ]) {
     visuals.update(new Vector3(...position), true)
+    visuals.advance(WALL_FADE_SECONDS)
     const faded = visuals.walls.filter((wall) => wall.material.opacity < 1).map((wall) => wall.surface.id)
     assert.deepEqual(faded.sort(), [...fadedIds].sort(), `Wrong wall cutaway from ${position}`)
     for (const wall of visuals.walls) {
@@ -91,6 +142,7 @@ try {
   assert.equal(backOccluder.blocks(sCamera, sTarget), false, 'Segment extended beyond the interior target and faded the back wall')
   const sVisuals = createWallVisuals(sSurfaces)
   sVisuals.update(sCamera, true)
+  sVisuals.advance(WALL_FADE_SECONDS)
   for (const wall of sVisuals.walls.slice(0, 3)) assert.equal(wall.material.opacity, CUTAWAY_OPACITY, `${wall.surface.id} remains opaque across the L-room corner`)
   assert.equal(sVisuals.walls[3].material.opacity, 1, 'L-room rear boundary became transparent')
   sVisuals.update(sCamera, false)
@@ -112,11 +164,11 @@ try {
   renderer = await create(React.createElement(React.Fragment, null, React.createElement(ScannedRoom), React.createElement(CameraProbe)), { camera: { position: [0, 4, 6] } })
   const walls = () => renderer.scene.findAll((node) => node.instance.name === 'scan-wall')
   const solid = walls()[0].instance.material
-  await renderer.advanceFrames(2, 1 / 60)
+  await renderer.advanceFrames(32, 1 / 60)
   assert.equal(walls()[0].instance.material.opacity, CUTAWAY_OPACITY)
   assert.equal(walls()[1].instance.material.opacity, 1)
   camera.position.set(0, 4, -6)
-  await renderer.advanceFrames(2, 1 / 60)
+  await renderer.advanceFrames(32, 1 / 60)
   assert.equal(walls()[0].instance.material.opacity, 1, 'Near/far walls did not swap after orbit')
   assert.equal(walls()[1].instance.material.opacity, CUTAWAY_OPACITY)
   await act(async () => useRoomCanvasStore.getState().setMode('play'))
@@ -134,7 +186,7 @@ try {
   const counts = []
   for (const [x, z] of [[8, 8], [-8, 8], [-8, -8], [8, -8]]) {
     camera.position.set(x, 7, z)
-    await renderer.advanceFrames(2, 1 / 60)
+    await renderer.advanceFrames(32, 1 / 60)
     const faded = walls().filter((wall) => wall.instance.material.opacity < 0.999).length
     assert.ok(faded > 0 && faded < walls().length, `Real scan has all or no walls faded from ${x},${z}: ${faded}/${walls().length}`)
     counts.push(`${x},${z}: ${faded} faded / ${walls().length - faded} solid`)
@@ -144,10 +196,10 @@ try {
   // Actual component with the synthetic S boundary must show the same extra fade.
   await act(async () => useRoomCanvasStore.getState().applyScan({ id: 's-wall-test', room: { surfaces: sSurfaces, colliders: [] }, furniture: [] }))
   camera.position.copy(sCamera)
-  await renderer.advanceFrames(2, 1 / 60)
+  await renderer.advanceFrames(32, 1 / 60)
   assert.equal(walls()[1].instance.material.opacity, CUTAWAY_OPACITY)
   assert.equal(walls()[3].instance.material.opacity, 1)
-  console.log(`PASS: three S-boundary occluders in an L room, finite segments, rotated OBBs, normal-only regression, orbit, Play opacity, material reuse; actual scan: ${counts.join('; ')}`)
+  console.log(`PASS: 0.5s fades at 30/60/120fps, interruption, stationary camera, reduced motion, immediate Play opacity, S-boundary occlusion, material reuse; actual scan: ${counts.join('; ')}`)
 } finally {
   if (renderer) await renderer.unmount()
   await vite.close()

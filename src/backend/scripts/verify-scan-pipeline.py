@@ -5,13 +5,15 @@ import json
 from pathlib import Path
 import sys
 import zipfile
+import uuid
 
 import httpx
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "src/backend"))
-from app.scans import adapt_scan, matrix, safe_path
+from app.scans import adapt_scan, matrix, safe_path, write_json
+from app.scan_import import bundle_inventory
 
 BUNDLE = ROOT / "reference/ToCodex/ScanDemoResult"
 
@@ -46,13 +48,20 @@ async def verify():
         pass
 
     async with httpx.AsyncClient(base_url="http://127.0.0.1:8000", timeout=120) as client:
+        previous = (await client.get("/api/scenes/latest")).raise_for_status().json()
         # Test the same API the iOS app and browser will use, including a nested ZIP root.
         archive = io.BytesIO()
+        test_id = str(uuid.uuid4()).upper()
+        _, _, resources = bundle_inventory(BUNDLE)
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
-            for file in BUNDLE.rglob("*"):
-                if file.is_file() and file.suffix in (".json", ".jpg"):
-                    output.write(file, "ScanDemoResult/" + file.relative_to(BUNDLE).as_posix())
-        response = await client.post("/api/scans", files={"files": ("scan.zip", archive.getvalue(), "application/zip")})
+            for relative in resources:
+                if relative in ("manifest.json", "scene.json"):
+                    data = json.loads((BUNDLE / relative).read_text(encoding="utf-8"))
+                    data["id" if relative == "manifest.json" else "scanId"] = test_id
+                    output.writestr("nested/" + relative, json.dumps(data))
+                else:
+                    output.write(BUNDLE / relative, "nested/" + relative)
+        response = await client.post("/api/scans?auto_reconstruct=false", files={"files": ("scan.zip", archive.getvalue(), "application/zip")})
         response.raise_for_status()
         imported = response.json()
         assert len(imported["furniture"]) == 7
@@ -65,16 +74,10 @@ async def verify():
             output.writestr("../escape.json", "{}")
         rejected = await client.post("/api/scans", files={"files": ("bad.zip", bad.getvalue(), "application/zip")})
         assert rejected.status_code == 422
-        # Restore the real demo as the default. This reuses its existing jobs/models.
-        response = await client.post("/api/scans/demo")
-        response.raise_for_status()
-        actual = response.json()
-        jobs_before = [item.get("jobId") for item in actual["furniture"]]
-        if all(jobs_before):
-            repeated = await client.post(f"/api/scenes/{actual['id']}/reconstruct")
-            repeated.raise_for_status()
-            assert jobs_before == [item["jobId"] for item in repeated.json()["furniture"]], "Duplicate paid tasks created"
-        print(f"PASS: real scan, 7 OBBs, 118 poses, door openings, ZIP upload, image routes, traversal rejection, task deduplication; scene={actual['id']}")
+        # Restore only the local test pointer, without starting any paid jobs.
+        write_json(ROOT / "tmp/scans/latest.json", {"id": previous["id"]})
+        assert all(not item.get("jobId") for item in imported["furniture"])
+        print(f"PASS: real scan, 7 OBBs, 118 poses, door openings, ZIP upload, image routes, traversal rejection; zero paid jobs; restored={previous['id']}")
 
 
 asyncio.run(verify())

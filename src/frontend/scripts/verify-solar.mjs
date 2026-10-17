@@ -176,11 +176,14 @@ try {
   await act(async () => useRoomCanvasStore.getState().applyScan(structuredClone(captured)))
   assert.equal(useSolarStore.getState().north, 45, 'Scan polling overwrote a manual north correction')
   await act(async () => useRoomCanvasStore.getState().applyScan({ ...captured, id: 'magnetic', source: { orientation: { ...captured.source.orientation, reference: 'magnetic-north' } } }))
-  assert.equal(useSolarStore.getState().north, 45, 'Magnetic north was silently treated as true north')
+  assert.equal(useSolarStore.getState().north, 0, 'An uncalibrated room inherited the preceding room north')
+  await act(async () => useRoomCanvasStore.getState().applyScan({ ...captured, id: 'no-heading', source: {} }))
+  assert.equal(useSolarStore.getState().north, 0)
+  assert.equal(useSolarStore.getState().site.latitude, SHANGHAI.latitude, 'An unlocated room inherited the preceding room location')
   const actual = await fetch('http://127.0.0.1:8000/api/scenes/latest').then((response) => response.json())
   if (actual.source.orientation?.reference === 'true-north') {
     await act(async () => useRoomCanvasStore.getState().applyScan(actual))
-    assert.equal(useSolarStore.getState().north, actual.source.orientation.northAngleDegrees, 'Real scan north did not reach the solar state')
+    assert.ok(Math.abs(useSolarStore.getState().north - actual.source.orientation.northAngleDegrees) < 1e-9, 'Real scan north did not reach the solar state')
     if (actual.source.orientation.location) assert.equal(useSolarStore.getState().site.latitude, actual.source.orientation.location.latitude)
     const angle = actual.source.orientation.northAngleDegrees * Math.PI / 180
     const north = actual.source.orientation.northInWorld

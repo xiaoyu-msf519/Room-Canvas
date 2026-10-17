@@ -3,7 +3,7 @@ export type Vec3 = [number, number, number]
 export type Quaternion = [number, number, number, number]
 
 export type FurnitureKind = 'original' | 'imported'
-export type GenerationStatus = 'pending' | 'queued' | 'needs_dimensions' | 'uploading' | 'generating' | 'scaling' | 'succeeded' | 'failed'
+export type GenerationStatus = 'pending' | 'preparing' | 'needs_review' | 'queued' | 'needs_dimensions' | 'uploading' | 'generating' | 'scaling' | 'succeeded' | 'failed'
 export type AssetSource = 'file' | 'clipboard' | 'drop' | 'url' | 'demo'
 
 export interface SceneCollider {
@@ -45,6 +45,16 @@ export interface RoomSurface extends SceneCollider {
 }
 
 export interface SceneManifest {
+  pipeline?: {
+    status: 'processing' | 'ready' | 'needs_attention' | 'idle'
+    preparation: 'pending' | 'running' | 'complete' | 'failed'
+    autoReconstruct: boolean
+    stageMessage: string
+    completed: number
+    total: number
+    failed: number
+    needsReview: number
+  }
   finishRecovery?: { method: 'rgbd-uniform-v1'; status: 'complete' | 'unavailable'; recoveredSurfaces: number }
   id: string
   title: string

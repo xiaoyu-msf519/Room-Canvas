@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "verify:rotation": "node scripts/verify-ground-rotation.mjs",
     "verify:scan": "node scripts/verify-scan-scene.mjs",
+    "verify:import": "node scripts/verify-scan-import.mjs",
     "verify:walls": "node scripts/verify-wall-visibility.mjs",
     "verify:solar": "node scripts/verify-solar.mjs",
     "preview": "vite preview"

@@ -5,3 +5,4 @@ trimesh==4.5.3
 uvicorn[standard]==0.34.0
 pygeomag==1.1.0
 Pillow==12.0.0
+opencv-python-headless==4.11.0.86

@@ -122,6 +122,14 @@ def adapt_scan(bundle: Path, scene_id: str) -> dict:
         raise ValueError("扫描包未完成或 manifest/scene 的 scanId 不一致")
     if source.get("units") != "meters" or source.get("matrixLayout") != "column-major" or "Y-up" not in source.get("coordinateSystem", ""):
         raise ValueError("扫描必须明确使用 meters、column-major、Y-up")
+    for records in (source["surfaces"], source["objects"]):
+        ids = [record["id"] for record in records]
+        if len(ids) != len(set(ids)):
+            raise ValueError("扫描包含重复对象 ID")
+    for surface in source["surfaces"]:
+        size = np.asarray(surface["dimensions"], dtype=float)
+        if size.shape != (3,) or not np.isfinite(size).all() or np.any(size[:2] <= 0):
+            raise ValueError("结构面必须包含有效的正长宽")
     floors = [s for s in source["surfaces"] if s["kind"] == "floor"]
     if not floors:
         raise ValueError("扫描缺少地板，无法确定地面基准")
@@ -170,9 +178,7 @@ def adapt_scan(bundle: Path, scene_id: str) -> dict:
         if len(size) != 3 or not all(math.isfinite(v) and v > 0 for v in size):
             raise ValueError("家具尺寸必须是三个正数")
         crops = sorted(obj.get("crops", []), key=lambda crop: crop.get("score", 0), reverse=True)
-        for crop in crops:
-            if not safe_path(bundle, crop["imagePath"]).is_file():
-                raise ValueError(f"缺少家具裁剪图: {crop['imagePath']}")
+        crops = [crop for crop in crops if safe_path(bundle, crop["imagePath"]).is_file()]
         transform = pose(matrix(obj["objectToWorld"]), offset)
         furniture.append({
             "id": obj["id"], "name": f"{labels.get(obj['category'], obj['category'])} {index+1}", "category": obj["category"],

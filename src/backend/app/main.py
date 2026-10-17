@@ -71,8 +71,12 @@ active_tasks: set[asyncio.Task] = set()
 
 
 def start_generation(asset_id: str, name: str, source: Path, content_type: str,
-                     width_mm: float, depth_mm: float, height_mm: float, prompt: str = "") -> GenerationJob:
-    job = GenerationJob(uuid.uuid4().hex, asset_id, name, status="queued", stage_message="等待重建…",
+                     width_mm: float, depth_mm: float, height_mm: float, prompt: str = "", *, idempotency_key: str | None = None) -> GenerationJob:
+    job_id = uuid.uuid5(uuid.NAMESPACE_URL, "roomcanvas.generation:" + idempotency_key).hex if idempotency_key else uuid.uuid4().hex
+    existing = _read_job(job_id)
+    if existing:
+        return existing
+    job = GenerationJob(job_id, asset_id, name, status="queued", stage_message="等待重建…",
                         width_mm=width_mm, depth_mm=depth_mm, height_mm=height_mm,
                         source_path=str(source), prompt=prompt)
     jobs[job.job_id] = job
@@ -99,7 +103,8 @@ async def resume_generations() -> None:
                 job.status, job.error = "failed", "提交中断，无法确认远端受理状态；请核对后重试"
                 _write_job(job)
             else:
-                schedule(job, Path(job.source_path), "image/jpeg")
+                source = Path(job.source_path)
+                schedule(job, source, "image/png" if source.suffix.lower() == ".png" else "image/jpeg")
 
 
 @app.get("/api/health")

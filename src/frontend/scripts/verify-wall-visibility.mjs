@@ -44,18 +44,19 @@ try {
   const fadingNorth = visuals.walls[0].material
   visuals.update(northCamera, true)
   assert.equal(fadingNorth.opacity, 1, 'Visibility change jumped to the target instead of fading')
+  assert.equal(fadingNorth.alphaHash, true, 'Edit walls need order-independent coverage transparency')
   visuals.advance(0.1)
   const partial = fadingNorth.opacity
   assert.ok(partial < 1 && partial > CUTAWAY_OPACITY, 'Intermediate fade-out opacity is missing')
-  assert.equal(fadingNorth.transparent, true)
-  assert.equal(fadingNorth.depthWrite, false)
+  assert.equal(fadingNorth.transparent, false)
+  assert.equal(fadingNorth.depthWrite, true)
   visuals.advance(WALL_FADE_SECONDS - 0.1)
   assert.equal(fadingNorth.opacity, CUTAWAY_OPACITY, 'Stationary camera prevented the fade from completing')
   visuals.update(southCamera, true)
   assert.equal(fadingNorth.opacity, CUTAWAY_OPACITY, 'Fade-in jumped on start')
   visuals.advance(0.25)
   assert.ok(fadingNorth.opacity > CUTAWAY_OPACITY && fadingNorth.opacity < 1)
-  assert.equal(fadingNorth.depthWrite, false, 'Edit wall changed its depth behavior during the fade')
+  assert.equal(fadingNorth.depthWrite, true, 'Fading walls must keep per-pixel depth testing and writing')
   const interrupted = fadingNorth.opacity
   visuals.update(northCamera, true)
   assert.equal(fadingNorth.opacity, interrupted, 'Reversing the camera restarted the opacity from an endpoint')
@@ -66,12 +67,12 @@ try {
   visuals.update(southCamera, true)
   visuals.advance(WALL_FADE_SECONDS)
   assert.equal(fadingNorth.opacity, 1)
-  assert.equal(fadingNorth.transparent, true, 'Fade endpoint moved the Edit wall into the opaque render queue')
-  assert.equal(fadingNorth.depthWrite, false, 'Fade endpoint changed Edit wall depth writes')
+  assert.equal(fadingNorth.transparent, false, 'Edit wall entered the object-sorted transparency queue')
+  assert.equal(fadingNorth.depthWrite, true, 'Fade endpoint changed Edit wall depth writes')
   visuals.update(northCamera, true)
   visuals.advance(0.1)
   visuals.update(northCamera, false)
-  assert.ok(visuals.walls.every((wall) => wall.material.opacity === 1 && wall.material.depthWrite), 'Play did not cancel an unfinished fade immediately')
+  assert.ok(visuals.walls.every((wall) => wall.material.opacity === 1 && wall.material.depthWrite && !wall.material.alphaHash), 'Play did not cancel an unfinished fade immediately')
   visuals.advance(1)
   assert.ok(visuals.walls.every((wall) => wall.material.opacity === 1), 'Cancelled Edit fade leaked into Play')
   visuals.update(northCamera, true)
@@ -85,8 +86,9 @@ try {
     const versions = sample.walls.map((wall) => wall.material.version)
     const assertStablePipeline = (frame) => {
       sample.walls.forEach(({ material }, index) => {
-        assert.equal(material.transparent, true, `Edit render queue changed at ${fps}fps, frame ${frame}`)
-        assert.equal(material.depthWrite, false, `Edit depth writes changed at ${fps}fps, frame ${frame}`)
+        assert.equal(material.transparent, false, `Edit wall uses object-sorted blending at ${fps}fps, frame ${frame}`)
+        assert.equal(material.depthWrite, true, `Edit wall stopped writing depth at ${fps}fps, frame ${frame}`)
+        assert.equal(material.alphaHash, true, `Edit coverage transparency changed at ${fps}fps, frame ${frame}`)
         assert.equal(material.version, versions[index], `Fade invalidated the material shader at ${fps}fps, frame ${frame}`)
       })
     }
@@ -111,14 +113,18 @@ try {
     [[0, 4, 6], ['north']], [[0, 4, -6], ['south']],
     [[6, 4, 0], ['east']], [[-6, 4, 0], ['west']],
     [[6, 4, 6], ['north', 'east']], [[0, 1.7, 0], []], [[0, 8, 0], []],
+    [[0, 0.25, 6], ['north']], [[0, 1.65, -6], ['south']],
+    [[6, 0.25, 0], ['east']], [[-6, 1.65, 0], ['west']],
+    [[6, 0.25, 6], ['north', 'east']], [[0, 0.25, 0], []],
   ]) {
     visuals.update(new Vector3(...position), true)
     visuals.advance(WALL_FADE_SECONDS)
     const faded = visuals.walls.filter((wall) => wall.material.opacity < 1).map((wall) => wall.surface.id)
     assert.deepEqual(faded.sort(), [...fadedIds].sort(), `Wrong wall cutaway from ${position}`)
     for (const wall of visuals.walls) {
-      assert.equal(wall.material.transparent, true)
-      assert.equal(wall.material.depthWrite, false)
+      assert.equal(wall.material.transparent, false)
+      assert.equal(wall.material.depthWrite, true)
+      assert.equal(wall.material.alphaHash, true)
     }
     visuals.update(new Vector3(...position), false)
     assert.ok(visuals.walls.every((wall) => wall.material.opacity === 1 && !wall.material.transparent && wall.material.depthWrite), 'Play wall is not opaque')
@@ -159,10 +165,12 @@ try {
   const backOccluder = createWallOccluder(sWalls[3])
   assert.equal(backOccluder.blocks(sCamera, sTarget), false, 'Segment extended beyond the interior target and faded the back wall')
   const sVisuals = createWallVisuals(sSurfaces)
-  sVisuals.update(sCamera, true)
-  sVisuals.advance(WALL_FADE_SECONDS)
-  for (const wall of sVisuals.walls.slice(0, 3)) assert.equal(wall.material.opacity, CUTAWAY_OPACITY, `${wall.surface.id} remains opaque across the L-room corner`)
-  assert.equal(sVisuals.walls[3].material.opacity, 1, 'L-room rear boundary became transparent')
+  for (const height of [5, 1.65, 0.25]) {
+    sVisuals.update(new Vector3(sCamera.x, height, sCamera.z), true)
+    sVisuals.advance(WALL_FADE_SECONDS)
+    for (const wall of sVisuals.walls.slice(0, 3)) assert.equal(wall.material.opacity, CUTAWAY_OPACITY, `${wall.surface.id} remains opaque across the L-room corner at height ${height}`)
+    assert.equal(sVisuals.walls[3].material.opacity, 1, `L-room rear boundary became transparent at height ${height}`)
+  }
   sVisuals.update(sCamera, false)
   assert.ok(sVisuals.walls.every((wall) => wall.material.opacity === 1 && wall.material.depthWrite), 'L-room walls are not solid in Play')
   sVisuals.dispose()
@@ -203,11 +211,24 @@ try {
   renderer = await create(React.createElement(React.Fragment, null, React.createElement(ScannedRoom), React.createElement(CameraProbe)), { camera: { position: [8, 7, 8] } })
   const counts = []
   for (const [x, z] of [[8, 8], [-8, 8], [-8, -8], [8, -8]]) {
-    camera.position.set(x, 7, z)
-    await renderer.advanceFrames(32, 1 / 60)
-    const faded = walls().filter((wall) => wall.instance.material.opacity < 0.999).length
-    assert.ok(faded > 0 && faded < walls().length, `Real scan has all or no walls faded from ${x},${z}: ${faded}/${walls().length}`)
-    counts.push(`${x},${z}: ${faded} faded / ${walls().length - faded} solid`)
+    for (const height of [7, 1.65, 0.25]) {
+      const before = walls().map((wall) => wall.instance.material.opacity)
+      const versions = walls().map((wall) => wall.instance.material.version)
+      camera.position.set(x, height, z)
+      camera.lookAt(0, Math.min(height, 0.8), 0)
+      await renderer.advanceFrames(1, 1 / 60)
+      walls().forEach(({ instance: { material } }, index) => {
+        assert.equal(material.transparent, false, 'Changing elevation put a wall into the object-sorted queue')
+        assert.equal(material.alphaHash, true)
+        assert.equal(material.depthWrite, true)
+        assert.equal(material.version, versions[index], 'Changing elevation invalidated a wall shader')
+        assert.ok(Math.abs(material.opacity - before[index]) < 0.1, 'Changing elevation bypassed the fade')
+      })
+      await renderer.advanceFrames(31, 1 / 60)
+      const faded = walls().filter((wall) => wall.instance.material.opacity < 0.999).length
+      assert.ok(faded > 0 && faded < walls().length, `Real scan has all or no walls faded from ${x},${height},${z}: ${faded}/${walls().length}`)
+      counts.push(`${x},${height},${z}: ${faded} faded / ${walls().length - faded} solid`)
+    }
   }
   await act(async () => useRoomCanvasStore.getState().setMode('play'))
   assert.ok(walls().every((wall) => wall.instance.material.opacity === 1 && !wall.instance.material.transparent))
@@ -217,7 +238,7 @@ try {
   await renderer.advanceFrames(32, 1 / 60)
   assert.equal(walls()[1].instance.material.opacity, CUTAWAY_OPACITY)
   assert.equal(walls()[3].instance.material.opacity, 1)
-  console.log(`PASS: stable Edit render queue/depth/shader through fade endpoints, repeated 0.5s fades at 30/60/120fps, interruption, stationary camera, reduced motion, immediate Play opacity, S-boundary occlusion, material reuse; actual scan: ${counts.join('; ')}`)
+  console.log(`PASS: depth-correct Alpha Hash transparency at low/high angles, stable Edit render queue/depth/shader through fade endpoints, repeated 0.5s fades at 30/60/120fps, interruption, stationary camera, reduced motion, immediate Play opacity, S-boundary occlusion, material reuse; actual scan: ${counts.join('; ')}`)
 } finally {
   if (renderer) await renderer.unmount()
   await vite.close()

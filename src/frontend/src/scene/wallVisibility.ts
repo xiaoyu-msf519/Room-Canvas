@@ -162,9 +162,11 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
       const checkOcclusion = edit && (!cameraInside || camera.y > ceiling + 0.05)
       for (const wall of walls) {
         if (modeChanged) {
-          // Keep Edit's render queue, shader and depth behavior stable even at opacity 1.
-          wall.material.transparent = edit
-          wall.material.depthWrite = !edit
+          // Alpha Hash keeps per-pixel depth correct without transparent object sorting.
+          // Keep the pipeline fixed throughout a fade, including its opacity-1 endpoint.
+          wall.material.transparent = false
+          wall.material.depthWrite = true
+          wall.material.alphaHash = edit
           wall.material.needsUpdate = true
         }
         let opacity = wallOpacityAt(wall.facing, camera, edit, cameraInside)

@@ -158,6 +158,18 @@ try {
   assert.equal(useSolarStore.getState().north, 45, 'Scan polling overwrote a manual north correction')
   await act(async () => useRoomCanvasStore.getState().applyScan({ ...captured, id: 'magnetic', source: { orientation: { ...captured.source.orientation, reference: 'magnetic-north' } } }))
   assert.equal(useSolarStore.getState().north, 45, 'Magnetic north was silently treated as true north')
+  const actual = await fetch('http://127.0.0.1:8000/api/scenes/latest').then((response) => response.json())
+  if (actual.source.orientation?.reference === 'true-north') {
+    await act(async () => useRoomCanvasStore.getState().applyScan(actual))
+    assert.equal(useSolarStore.getState().north, actual.source.orientation.northAngleDegrees, 'Real scan north did not reach the solar state')
+    if (actual.source.orientation.location) assert.equal(useSolarStore.getState().site.latitude, actual.source.orientation.location.latitude)
+    const angle = actual.source.orientation.northAngleDegrees * Math.PI / 180
+    const north = actual.source.orientation.northInWorld
+    assert.ok(Math.abs(north[0] - Math.sin(angle)) < 1e-6 && Math.abs(north[2] + Math.cos(angle)) < 1e-6, 'Backend north angle uses a different Web axis/sign convention')
+    const unchanged = useSolarStore.getState().north
+    await act(async () => useRoomCanvasStore.getState().applyScan(structuredClone(actual)))
+    assert.equal(useSolarStore.getState().north, unchanged)
+  }
   console.log(`PASS: NREL reference, real transferable Worker (${precomputeMs.toFixed(1)}ms, ${heartbeats} main-thread heartbeats), 365/366-day tables, vector seams/north/timezone, ${maxError.toFixed(4)}deg max sampled interpolation error, ${(lookupMs * 10).toFixed(2)}ns/lookup, cached sites/cancellation, toolbar controls, persistent smooth lights, day/night, shadow reuse, true-north scan import with manual correction preserved.`)
 } finally {
   atlas?.dispose()

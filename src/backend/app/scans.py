@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 import trimesh
+from .heading import correct_magnetic_north
 
 
 def safe_path(root: Path, relative: str) -> Path:
@@ -73,7 +74,7 @@ def wall_panels(wall: dict, apertures: list[dict]) -> list[dict]:
     return panels
 
 
-def adapt_orientation(value: Any) -> dict | None:
+def adapt_orientation(value: Any, captured_at: str | None = None) -> dict | None:
     if value is None:
         return None
     if not isinstance(value, dict) or value.get("reference") not in ("true-north", "magnetic-north"):
@@ -94,9 +95,6 @@ def adapt_orientation(value: Any) -> dict | None:
     north /= np.linalg.norm(north)
     result = {key: value[key] for key in ("reference", "method", "accuracyDegrees", "coherence", "sampleCount") if key in value}
     result["northInWorld"] = north.tolist()
-    # This adapter translates the AR world only; it never rotates its north vector.
-    if value["reference"] == "true-north":
-        result["northAngleDegrees"] = math.degrees(math.atan2(north[0], -north[2])) % 360
     offset = value.get("utcOffsetMinutes")
     if isinstance(offset, (int, float)) and math.isfinite(offset) and -720 <= offset <= 840:
         result["utcOffsetMinutes"] = offset
@@ -105,6 +103,13 @@ def adapt_orientation(value: Any) -> dict | None:
         lat, lon = location.get("latitude"), location.get("longitude")
         if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) and math.isfinite(lat) and math.isfinite(lon) and abs(lat) <= 90 and abs(lon) <= 180:
             result["location"] = {"latitude": lat, "longitude": lon}
+    # The room adapter only translates AR coordinates; correction changes the
+    # north reference, never the room, furniture, or camera transforms.
+    if result["reference"] == "magnetic-north":
+        correct_magnetic_north(result, captured_at)
+    if result["reference"] == "true-north":
+        nx, _, nz = result["northInWorld"]
+        result["northAngleDegrees"] = math.degrees(math.atan2(nx, -nz)) % 360
     return result
 
 
@@ -173,9 +178,11 @@ def adapt_scan(bundle: Path, scene_id: str) -> dict:
         cameras.append(saved)
     warnings = list(metadata.get("warnings", []))
     try:
-        orientation = adapt_orientation(source.get("orientation") or metadata.get("orientation"))
+        orientation = adapt_orientation(source.get("orientation") or metadata.get("orientation"), metadata.get("createdAt"))
         if orientation and orientation["reference"] != "true-north":
             warnings.append("指南针仅记录磁北；太阳真北需要在 Web 手动校准。")
+        elif orientation and orientation.get("correction"):
+            warnings.append("已按扫描位置和日期用 WMM2025 将磁北修正为真北；仍受原指南针精度与室内磁干扰影响。")
     except (ValueError, TypeError):
         orientation = None
         warnings.append("扫描朝向数据无效或精度不足，已保留房间并使用手动北向校准。")

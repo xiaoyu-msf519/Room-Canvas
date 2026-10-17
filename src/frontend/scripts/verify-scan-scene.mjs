@@ -5,7 +5,7 @@ import { create, act } from '@react-three/test-renderer'
 import { createServer } from 'vite'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
-const { Box3, Vector3 } = createRequire(import.meta.url)('three')
+const { Box3, Matrix4, Quaternion, Vector3 } = createRequire(import.meta.url)('three')
 const scene = await fetch('http://127.0.0.1:8000/api/scenes/latest').then((r) => r.json())
 const vite = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true }, appType: 'custom' })
 let renderer
@@ -20,9 +20,13 @@ try {
   const floors = renderer.scene.findAll((node) => node.instance.name === 'scan-floor')
   assert.equal(walls.length, scene.room.surfaces.filter((item) => item.kind === 'wall').length)
   assert.equal(floors.length, 1)
-  const floorBounds = new Box3().setFromObject(floors[0].instance)
+  const floorBounds = new Box3().setFromObject(floors[0].instance, true)
   assert.ok(Math.abs(floorBounds.min.y) < 0.0001 && Math.abs(floorBounds.max.y) < 0.0001, 'Floor is not at Y=0')
-  assert.ok(floorBounds.getSize(new Vector3()).x > 10, 'Room geometry is blank or incorrectly scaled')
+  const sourceFloor = scene.room.surfaces.find((surface) => surface.kind === 'floor')
+  const floorPose = new Matrix4().compose(new Vector3(...sourceFloor.position), new Quaternion(...sourceFloor.rotation), new Vector3(1, 1, 1))
+  const expectedFloorBounds = new Box3().setFromPoints(sourceFloor.polygonCorners.map(([x, y]) => new Vector3(x, y, 0).applyMatrix4(floorPose)))
+  assert.ok(floorBounds.min.distanceTo(expectedFloorBounds.min) < 0.0001 && floorBounds.max.distanceTo(expectedFloorBounds.max) < 0.0001, 'Floor dimensions or pose differ from the scan contract')
+  assert.ok(floorBounds.getSize(new Vector3()).length() > 0.1, 'Room geometry is blank')
   const colliders = createWalkObstacles([...scene.room.colliders, ...scene.furniture])
   const floor = createWalkFloor(scene.room.surfaces)
   const spawn = findWalkSpawn(colliders, floor)

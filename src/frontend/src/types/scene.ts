@@ -68,6 +68,9 @@ export interface SceneManifest {
     accuracyDegrees: number
     sampleCount: number
     coherence: number
+    sourceReference?: 'magnetic-north'
+    magneticNorthInWorld?: Vec3
+    correction?: { model: 'WMM2025'; declinationDegrees: number; uncertaintyDegrees: number; capturedAt: string; altitudeMeters: number }
     utcOffsetMinutes?: number
     location?: { latitude: number; longitude: number }
   } | null }

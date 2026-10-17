@@ -48,7 +48,9 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
 
     @app.post("/api/scans/demo")
     async def import_demo() -> dict:
-        bundle = root / "reference" / "ToCodex" / "ScanDemoResult"
+        bundle = root / "reference" / "ToCodex" / "ScanDemoWithDirectionResult"
+        if not bundle.is_dir():
+            bundle = root / "reference" / "ToCodex" / "ScanDemoResult"
         if not bundle.is_dir():
             raise HTTPException(404, "本机未找到 ScanDemoResult")
         # Stable ID makes repeated imports reuse the same generated models.
@@ -60,6 +62,8 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
         destination.mkdir(parents=True, exist_ok=True)
         for name in ("manifest.json", "scene.json", "cameras.json"):
             shutil.copy2(bundle / name, destination / name)
+        if (bundle / "heading.json").is_file():
+            shutil.copy2(bundle / "heading.json", destination / "heading.json")
         # Keep source images/poses available without duplicating the depth cache.
         for name in ("objects", "frames", "surfaces"):
             shutil.copytree(bundle / name, destination / name, dirs_exist_ok=True)

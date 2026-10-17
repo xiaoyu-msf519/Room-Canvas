@@ -25,7 +25,7 @@ struct ScanScreen: View {
                         Spacer()
                         Text("RoomCanvas").font(.headline)
                         Spacer()
-                        Text(session.duration).font(.system(.body, design: .monospaced)).frame(minWidth: 60)
+                        Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
                     }.foregroundStyle(.white).padding(.horizontal, 12).background(.black) }
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {

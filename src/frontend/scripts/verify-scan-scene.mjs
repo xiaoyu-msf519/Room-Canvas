@@ -26,6 +26,12 @@ try {
   const floorBounds = new Box3().setFromObject(floors[0].instance, true)
   assert.ok(Math.abs(floorBounds.min.y) < 0.0001 && Math.abs(floorBounds.max.y) < 0.0001, 'Floor is not at Y=0')
   const sourceFloor = scene.room.surfaces.find((surface) => surface.kind === 'floor')
+  if (sourceFloor.finish) assert.equal(floors[0].instance.material.color.getHexString(), sourceFloor.finish.baseColor.slice(1), 'Recovered floor paint was not applied')
+  const sourceWalls = scene.room.surfaces.filter((surface) => surface.kind === 'wall')
+  for (const [index, wall] of walls.entries()) {
+    const source = sourceWalls[index]
+    if (source.finish) assert.equal(wall.instance.material.color.getHexString(), source.finish.baseColor.slice(1), 'Recovered wall paint was not applied')
+  }
   const floorPose = new Matrix4().compose(new Vector3(...sourceFloor.position), new Quaternion(...sourceFloor.rotation), new Vector3(1, 1, 1))
   const expectedFloorBounds = new Box3().setFromPoints(sourceFloor.polygonCorners.map(([x, y]) => new Vector3(x, y, 0).applyMatrix4(floorPose)))
   assert.ok(floorBounds.min.distanceTo(expectedFloorBounds.min) < 0.0001 && floorBounds.max.distanceTo(expectedFloorBounds.max) < 0.0001, 'Floor dimensions or pose differ from the scan contract')

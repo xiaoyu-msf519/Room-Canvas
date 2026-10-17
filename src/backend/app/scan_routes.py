@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import shutil
 import uuid
 import zipfile
@@ -9,6 +10,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from .scans import adapt_scan, read_json, safe_path, write_json
+from .surface_materials import apply_finishes
 
 MAX_BUNDLE_BYTES = 300 * 1024 * 1024
 
@@ -33,6 +35,10 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
             scene = adapt_scan(bundle, scene_id)
         except (ValueError, KeyError, TypeError, OSError) as error:
             raise HTTPException(422, f"扫描包结构不正确: {error}") from error
+        apply_finishes(scene, bundle, scene_path(scene_id).parent / "surface-finishes.json")
+        subdir = bundle.relative_to(scene_path(scene_id).parent / "bundle").as_posix()
+        if subdir != ".":
+            scene["bundleSubdir"] = subdir
         write_json(scene_path(scene_id), scene)
         write_json(scenes_root / "latest.json", {"id": scene_id})
         return scene
@@ -61,7 +67,7 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
             # such as the synthesized ceiling. Preserve every paid model job.
             if not any(surface.get("kind") == "ceiling" for surface in existing["room"].get("surfaces", [])):
                 destination = scene_path(scene_id).parent / "bundle"
-                rebuilt = save_scene(destination, scene_id)
+                rebuilt = await asyncio.to_thread(save_scene, destination, scene_id)
                 old_by_id = {item["id"]: item for item in existing["furniture"]}
                 for item in rebuilt["furniture"]:
                     old = old_by_id.get(item["id"])
@@ -70,6 +76,20 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                             if key in old: item[key] = old[key]
                 write_json(scene_path(scene_id), rebuilt)
                 existing = rebuilt
+            destination = scene_path(scene_id).parent / "bundle"
+            if (bundle / "depth").is_dir() and not (destination / "depth").exists():
+                await asyncio.to_thread(shutil.copytree, bundle / "depth", destination / "depth")
+            await asyncio.to_thread(apply_finishes, existing, destination, scene_path(scene_id).parent / "surface-finishes.json")
+            # Generation can progress while RGB-D is processed in a worker.
+            # Merge only appearance into the latest manifest to retain its jobs.
+            latest = load(scene_id)
+            by_id = {surface["id"]: surface.get("finish") for surface in existing["room"]["surfaces"]}
+            for surface in latest["room"]["surfaces"]:
+                if by_id.get(surface["id"]):
+                    surface["finish"] = by_id[surface["id"]]
+            latest["finishRecovery"] = existing["finishRecovery"]
+            existing = latest
+            write_json(scene_path(scene_id), existing)
             write_json(scenes_root / "latest.json", {"id": scene_id})
             return refresh(existing)
         destination = scenes_root / scene_id / "bundle"
@@ -78,10 +98,10 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
             shutil.copy2(bundle / name, destination / name)
         if (bundle / "heading.json").is_file():
             shutil.copy2(bundle / "heading.json", destination / "heading.json")
-        # Keep source images/poses available without duplicating the depth cache.
-        for name in ("objects", "frames", "surfaces"):
-            shutil.copytree(bundle / name, destination / name, dirs_exist_ok=True)
-        return save_scene(destination, scene_id)
+        for name in ("objects", "frames", "surfaces", "depth"):
+            if (bundle / name).is_dir():
+                await asyncio.to_thread(shutil.copytree, bundle / name, destination / name, dirs_exist_ok=True)
+        return await asyncio.to_thread(save_scene, destination, scene_id)
 
     @app.post("/api/scans", status_code=201)
     async def upload_scan(files: list[UploadFile] = File(...)) -> dict:
@@ -115,10 +135,7 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
             if len(manifests) != 1:
                 raise ValueError("必须包含唯一的 manifest.json")
             bundle = manifests[0].parent
-            # Record the nested bundle root for resource and reconstruction paths.
-            scene = save_scene(bundle, scene_id)
-            scene["bundleSubdir"] = bundle.relative_to(destination).as_posix()
-            write_json(scene_path(scene_id), scene)
+            scene = await asyncio.to_thread(save_scene, bundle, scene_id)
             return scene
         except (ValueError, zipfile.BadZipFile) as error:
             raise HTTPException(422, str(error)) from error

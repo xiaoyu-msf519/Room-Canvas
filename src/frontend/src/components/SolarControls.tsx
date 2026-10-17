@@ -6,7 +6,7 @@ import { PROVINCES } from '../solar/provinces'
 import { CircularSlider } from './CircularSlider'
 
 export function SolarControls({ showTime = true, showMacro = true }: { showTime?: boolean; showMacro?: boolean }) {
-  const { year, day, minute, site, north, status, showPath, animationMode, setClock, setSite, setNorth, setShowPath, setAnimationMode } = useSolarStore()
+  const { year, day, minute, site, north, status, showPath, animateDayNight, animateSeasons, setClock, setSite, setNorth, setShowPath, setAnimateDayNight, setAnimateSeasons } = useSolarStore()
   const dialog = useRef<HTMLDialogElement>(null)
   const [draft, setDraft] = useState({ province: site.name, latitude: String(site.latitude), longitude: String(site.longitude), offset: String(site.utcOffset), north: String(north) })
   const [error, setError] = useState('')
@@ -43,8 +43,8 @@ export function SolarControls({ showTime = true, showMacro = true }: { showTime?
     <button className={`solar-icon-button ${showPath ? 'is-active' : ''}`} type="button" title="太阳轨迹" aria-label="显示太阳轨迹" aria-pressed={showPath} onClick={() => setShowPath(!showPath)}><Orbit size={16} /></button>
     </>}
     {showMacro && <div className="solar-macro-switches" aria-label="宏观时间推进">
-      <button className={`solar-macro-button ${animationMode === 'day-night' ? 'is-active' : ''}`} type="button" title="日夜更替：6 秒经过一天" aria-pressed={animationMode === 'day-night'} onClick={() => setAnimationMode(animationMode === 'day-night' ? 'none' : 'day-night')}><Sun size={14} /><span>日夜</span></button>
-      <button className={`solar-macro-button ${animationMode === 'seasons' ? 'is-active' : ''}`} type="button" title="四季更替：10 秒经过一个季节" aria-pressed={animationMode === 'seasons'} onClick={() => setAnimationMode(animationMode === 'seasons' ? 'none' : 'seasons')}><FastForward size={14} /><span>四季</span></button>
+      <button className={`solar-macro-button ${animateDayNight ? 'is-active' : ''}`} type="button" title="日夜更替：仅推进时间，6 秒循环一天" aria-pressed={animateDayNight} onClick={() => setAnimateDayNight(!animateDayNight)}><Sun size={14} /><span>日夜</span></button>
+      <button className={`solar-macro-button ${animateSeasons ? 'is-active' : ''}`} type="button" title="四季更替：仅推进日期，10 秒经过一个季节" aria-pressed={animateSeasons} onClick={() => setAnimateSeasons(!animateSeasons)}><FastForward size={14} /><span>四季</span></button>
     </div>}
     {showTime && <dialog ref={dialog} className="solar-location-dialog" aria-labelledby="solar-location-title" onClick={(event) => { if (event.target === dialog.current) dialog.current.close() }}>
       <form onSubmit={(event) => {

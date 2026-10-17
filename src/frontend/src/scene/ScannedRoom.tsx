@@ -16,7 +16,7 @@ function Floor({ surface }: { surface: RoomSurface }) {
   }, [surface.polygonCorners])
   return <mesh name="scan-floor" position={surface.position} quaternion={surface.rotation} receiveShadow>
     <shapeGeometry args={[shape]} />
-    <meshStandardMaterial color="#a2abae" roughness={0.95} side={DoubleSide} />
+    <meshStandardMaterial color={surface.finish?.baseColor ?? '#a2abae'} roughness={surface.finish?.roughness ?? 0.95} side={DoubleSide} />
   </mesh>
 }
 

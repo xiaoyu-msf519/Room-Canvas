@@ -32,9 +32,19 @@ export interface RoomSurface extends SceneCollider {
   id: string
   kind: 'wall' | 'floor' | 'ceiling'
   polygonCorners?: Vec3[]
+  finish?: {
+    baseColor: string
+    roughness: number
+    method: 'rgbd-uniform-v1'
+    sourceSurfaceId: string
+    frameCount: number
+    sampleCount: number
+    coverage: number
+  }
 }
 
 export interface SceneManifest {
+  finishRecovery?: { method: 'rgbd-uniform-v1'; status: 'complete' | 'unavailable'; recoveredSurfaces: number }
   id: string
   title: string
   version: string

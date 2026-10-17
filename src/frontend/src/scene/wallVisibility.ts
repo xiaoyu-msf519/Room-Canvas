@@ -140,7 +140,7 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
     surface,
     facing: createWallFacing(surface, floor),
     occluder: createWallOccluder(surface),
-    material: new MeshStandardMaterial({ color: '#d6dadb', roughness: 0.92 }),
+    material: new MeshStandardMaterial({ color: surface.finish?.baseColor ?? '#d6dadb', roughness: surface.finish?.roughness ?? 0.92 }),
     fade: { from: 1, target: 1, elapsed: WALL_FADE_SECONDS },
   }))
   const interiorTargets = createInteriorTargets(surfaces, floor, walls.map((wall) => wall.occluder))

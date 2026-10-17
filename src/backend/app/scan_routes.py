@@ -28,7 +28,20 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
         path = scene_path(scene_id)
         if not path.is_file():
             raise HTTPException(404, "场景不存在")
-        return read_json(path)
+        scene = read_json(path)
+        ceiling = next((surface for surface in scene["room"]["surfaces"] if surface.get("id") == "room-ceiling"), None)
+        if ceiling and ceiling.get("heightAlignment") != "lowest-wall-top":
+            bundle = path.parent / "bundle" / scene.get("bundleSubdir", "")
+            try:
+                adapted = adapt_scan(bundle, scene_id)
+                replacement = next(surface for surface in adapted["room"]["surfaces"] if surface.get("id") == "room-ceiling")
+            except (OSError, ValueError, KeyError, TypeError, StopIteration):
+                return scene
+            # Migrate only ceiling height; keep all model jobs and edited poses.
+            ceiling["position"][1] = replacement["position"][1]
+            ceiling["heightAlignment"] = "lowest-wall-top"
+            write_json(path, scene)
+        return scene
 
     def save_scene(bundle: Path, scene_id: str) -> dict:
         try:
@@ -54,11 +67,11 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
 
     @app.post("/api/scans/demo")
     async def import_demo() -> dict:
-        bundle = root / "reference" / "ToCodex" / "ScanDemoWithDirectionResult"
-        if not bundle.is_dir():
-            bundle = root / "reference" / "ToCodex" / "ScanDemoResult"
-        if not bundle.is_dir():
-            raise HTTPException(404, "本机未找到 ScanDemoResult")
+        inputs = root / "reference" / "ToCodex"
+        candidates = ("ScanDemoWallResult", "ScanDemoWithDirectionResult", "ScanDemoResult")
+        bundle = next((inputs / name for name in candidates if (inputs / name).is_dir()), None)
+        if bundle is None:
+            raise HTTPException(404, "本机未找到扫描样例")
         # Stable ID makes repeated imports reuse the same generated models.
         scene_id = uuid.uuid5(uuid.NAMESPACE_URL, str(bundle.resolve())).hex
         if scene_path(scene_id).is_file():

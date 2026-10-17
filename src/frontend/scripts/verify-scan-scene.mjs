@@ -28,6 +28,16 @@ try {
   const sourceFloor = scene.room.surfaces.find((surface) => surface.kind === 'floor')
   if (sourceFloor.finish) assert.equal(floors[0].instance.material.color.getHexString(), sourceFloor.finish.baseColor.slice(1), 'Recovered floor paint was not applied')
   const sourceWalls = scene.room.surfaces.filter((surface) => surface.kind === 'wall')
+  const originalWallTops = new Map()
+  for (const surface of sourceWalls) {
+    const sourceId = surface.id.replace(/-\d+$/, '')
+    const top = surface.position[1] + new Vector3(0, surface.size[1] / 2, 0).applyQuaternion(new Quaternion(...surface.rotation)).y
+    originalWallTops.set(sourceId, Math.max(originalWallTops.get(sourceId) ?? -Infinity, top))
+  }
+  const lowestWallTop = Math.min(...originalWallTops.values())
+  const sourceCeiling = scene.room.surfaces.find((surface) => surface.kind === 'ceiling')
+  assert.equal(sourceCeiling.heightAlignment, 'lowest-wall-top', 'Ceiling height migration was not applied')
+  assert.ok(Math.abs(sourceCeiling.position[1] - lowestWallTop) < 0.0001, 'Ceiling must align with the lowest original wall, not a door fragment')
   for (const [index, wall] of walls.entries()) {
     const source = sourceWalls[index]
     if (source.finish) assert.equal(wall.instance.material.color.getHexString(), source.finish.baseColor.slice(1), 'Recovered wall paint was not applied')

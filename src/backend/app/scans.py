@@ -152,7 +152,8 @@ def adapt_scan(bundle: Path, scene_id: str) -> dict:
             if math.isfinite(top): wall_tops.append(float(top))
         if wall_tops:
             ceiling = dict(floor_record)
-            ceiling.update(id="room-ceiling", kind="ceiling", position=[floor_record["position"][0], max(wall_tops), floor_record["position"][2]])
+            ceiling.update(id="room-ceiling", kind="ceiling", heightAlignment="lowest-wall-top",
+                           position=[floor_record["position"][0], min(wall_tops), floor_record["position"][2]])
             surfaces.append(ceiling)
     room_points = list(floor_points)
     for wall in (surface for surface in source["surfaces"] if surface["kind"] == "wall"):

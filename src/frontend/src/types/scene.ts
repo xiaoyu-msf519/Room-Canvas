@@ -32,6 +32,7 @@ export interface RoomSurface extends SceneCollider {
   id: string
   kind: 'wall' | 'floor' | 'ceiling'
   polygonCorners?: Vec3[]
+  heightAlignment?: 'lowest-wall-top'
   finish?: {
     baseColor: string
     roughness: number

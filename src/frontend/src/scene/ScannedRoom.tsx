@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { DoubleSide, Shape, Vector3 } from 'three'
+import { DoubleSide, MeshBasicMaterial, Shape, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import type { RoomSurface } from '../types/scene'
 import { createWallVisuals } from './wallVisibility'
@@ -28,6 +28,7 @@ export function ScannedRoom() {
   const geometryKey = JSON.stringify(scan?.room.surfaces ?? [])
   const visuals = useMemo(() => createWallVisuals(JSON.parse(geometryKey)), [geometryKey])
   const transparency = useMemo(() => createWallTransparency(visuals.walls), [visuals])
+  const shadowOnly = useMemo(() => new MeshBasicMaterial({ colorWrite: false, depthWrite: false }), [])
   const cameraPosition = useMemo(() => new Vector3(), [])
   const reducedMotion = useRef(false)
   const updateWalls = () => {
@@ -50,14 +51,18 @@ export function ScannedRoom() {
   }, [])
   useEffect(() => () => visuals.dispose(), [visuals])
   useEffect(() => () => transparency.dispose(), [transparency])
+  useEffect(() => () => shadowOnly.dispose(), [shadowOnly])
   if (!scan) return null
   return <group name="scanned-room">
     {scan.room.surfaces.filter((surface) => surface.kind === 'floor').map((surface) => <Floor key={surface.id} surface={surface} />)}
     {visuals.walls.map(({ surface, material }) =>
-      <mesh key={surface.id} name="scan-wall" visible={!edit} material={material} position={surface.position} quaternion={surface.rotation} receiveShadow>
+      <mesh key={surface.id} name="scan-wall" visible={!edit} material={material} position={surface.position} quaternion={surface.rotation} receiveShadow castShadow>
         <boxGeometry args={surface.size} />
       </mesh>
     )}
+    {edit && visuals.walls.map(({ surface }) => <mesh key={`shadow-${surface.id}`} name="scan-wall-shadow" material={shadowOnly} position={surface.position} quaternion={surface.rotation} castShadow>
+      <boxGeometry args={surface.size} />
+    </mesh>)}
     <group name="edit-wall-fragments" visible={edit}>
       {transparency.meshes.map((mesh) => <primitive key={mesh.uuid} object={mesh} />)}
     </group>

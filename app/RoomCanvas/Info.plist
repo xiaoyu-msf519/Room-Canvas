@@ -13,6 +13,11 @@
     <key>LSRequiresIPhoneOS</key><true/>
     <key>NSCameraUsageDescription</key>
     <string>RoomCanvas 使用相机与 LiDAR 扫描房间，并在本机保存房间结构、家具照片及相机参数。</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>扫描时使用大致位置校正指南针真北，保存房间朝向与日照位置。拒绝后仍可扫描并手动设置朝向。</string>
+    <key>NSLocationDefaultAccuracyReduced</key><true/>
+    <key>NSMotionUsageDescription</key>
+    <string>扫描时将手机指南针姿态与 AR 相机位姿配对，记录房间的东南西北方向。</string>
     <key>UIFileSharingEnabled</key><true/>
     <key>LSSupportsOpeningDocumentsInPlace</key><true/>
     <key>UIRequiresFullScreen</key><true/>

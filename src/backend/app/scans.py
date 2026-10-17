@@ -73,6 +73,41 @@ def wall_panels(wall: dict, apertures: list[dict]) -> list[dict]:
     return panels
 
 
+def adapt_orientation(value: Any) -> dict | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or value.get("reference") not in ("true-north", "magnetic-north"):
+        raise ValueError("Unknown north reference")
+    north = np.asarray(value.get("northInWorld"), dtype=float)
+    if north.shape != (3,) or not np.isfinite(north).all() or abs(north[1]) > 0.1 or np.linalg.norm(north[[0, 2]]) < 0.9:
+        raise ValueError("Invalid world north vector")
+    accuracy = value.get("accuracyDegrees")
+    coherence = value.get("coherence")
+    count = value.get("sampleCount")
+    if not isinstance(accuracy, (int, float)) or not math.isfinite(accuracy) or not 0 <= accuracy <= 25:
+        raise ValueError("Unreliable heading accuracy")
+    if not isinstance(coherence, (int, float)) or not math.isfinite(coherence) or not 0.94 <= coherence <= 1.00001:
+        raise ValueError("Inconsistent north samples")
+    if not isinstance(count, int) or isinstance(count, bool) or count < 5:
+        raise ValueError("Too few synchronized heading samples")
+    north[1] = 0
+    north /= np.linalg.norm(north)
+    result = {key: value[key] for key in ("reference", "method", "accuracyDegrees", "coherence", "sampleCount") if key in value}
+    result["northInWorld"] = north.tolist()
+    # This adapter translates the AR world only; it never rotates its north vector.
+    if value["reference"] == "true-north":
+        result["northAngleDegrees"] = math.degrees(math.atan2(north[0], -north[2])) % 360
+    offset = value.get("utcOffsetMinutes")
+    if isinstance(offset, (int, float)) and math.isfinite(offset) and -720 <= offset <= 840:
+        result["utcOffsetMinutes"] = offset
+    location = value.get("location")
+    if isinstance(location, dict):
+        lat, lon = location.get("latitude"), location.get("longitude")
+        if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) and math.isfinite(lat) and math.isfinite(lon) and abs(lat) <= 90 and abs(lon) <= 180:
+            result["location"] = {"latitude": lat, "longitude": lon}
+    return result
+
+
 def adapt_scan(bundle: Path, scene_id: str) -> dict:
     metadata = read_json(bundle / "manifest.json")
     source = read_json(bundle / "scene.json")
@@ -136,10 +171,18 @@ def adapt_scan(bundle: Path, scene_id: str) -> dict:
         saved["cameraToWorld"] = adjusted.flatten(order="F").tolist()
         saved["imageUrl"] = f"/api/scenes/{scene_id}/files/{camera['imagePath']}"
         cameras.append(saved)
+    warnings = list(metadata.get("warnings", []))
+    try:
+        orientation = adapt_orientation(source.get("orientation") or metadata.get("orientation"))
+        if orientation and orientation["reference"] != "true-north":
+            warnings.append("指南针仅记录磁北；太阳真北需要在 Web 手动校准。")
+    except (ValueError, TypeError):
+        orientation = None
+        warnings.append("扫描朝向数据无效或精度不足，已保留房间并使用手动北向校准。")
     return {
         "id": scene_id, "title": metadata.get("title", "扫描房间"), "version": "1.0",
         "units": "meters", "coordinateSystem": "right-handed-y-up",
-        "source": {"schemaVersion": source["schemaVersion"], "scanId": source["scanId"], "coordinateSystem": source["coordinateSystem"], "matrixLayout": source["matrixLayout"], "worldOffset": offset.tolist()},
+        "source": {"schemaVersion": source["schemaVersion"], "scanId": source["scanId"], "coordinateSystem": source["coordinateSystem"], "matrixLayout": source["matrixLayout"], "worldOffset": offset.tolist(), "orientation": orientation},
         "room": {"surfaces": surfaces, "colliders": colliders, "bounds": (bounds_max-bounds_min).tolist(), "min": bounds_min.tolist(), "max": bounds_max.tolist()},
-        "furniture": furniture, "cameras": cameras, "warnings": metadata.get("warnings", []),
+        "furniture": furniture, "cameras": cameras, "warnings": warnings,
     }

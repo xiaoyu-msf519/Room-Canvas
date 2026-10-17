@@ -73,7 +73,7 @@ export function SceneCanvas() {
   return (
     <div className="scene-canvas" aria-label="RoomCanvas 3D scene" onDragOver={onDragOver} onDrop={onDrop}>
       <Canvas
-        shadows={mode === 'play'}
+        shadows
         dpr={mode === 'play' ? [1, 2] : [1, 1.35]}
         camera={{ position: [4.8, 4.4, 6.2], fov: 52, near: 0.05, far: 100 }}
         onPointerMissed={() => {

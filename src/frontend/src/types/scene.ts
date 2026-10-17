@@ -61,7 +61,16 @@ export interface SceneManifest {
     intrinsics?: [number, number, number, number, number, number, number, number, number]
     cameraToWorld?: number[]
   }>
-  source: { worldOffset: Vec3; coordinateSystem: string; matrixLayout: string; scanId: string }
+  source: { worldOffset: Vec3; coordinateSystem: string; matrixLayout: string; scanId: string; orientation?: {
+    reference: 'true-north' | 'magnetic-north'
+    northInWorld: Vec3
+    northAngleDegrees?: number
+    accuracyDegrees: number
+    sampleCount: number
+    coherence: number
+    utcOffsetMinutes?: number
+    location?: { latitude: number; longitude: number }
+  } | null }
   warnings: string[]
 }
 

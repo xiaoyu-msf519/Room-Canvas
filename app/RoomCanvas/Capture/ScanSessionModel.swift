@@ -19,11 +19,13 @@ final class ScanSessionModel: ObservableObject {
     @Published var message: String?
     @Published var cameraDenied = false
     @Published var result: ScanManifest?
+    @Published var headingStatus = "朝向：校准中"
     weak var controller: RoomScanController?
     var onClose: (() -> Void)?
 
     private var manifest: ScanManifest?
     private var recorder: FrameRecorder?
+    private var headingRecorder: HeadingRecorder?
     private var timer: Timer?
     private var startedAt: Date?
     private var lastSampleTime: TimeInterval = -Double.infinity
@@ -78,6 +80,12 @@ final class ScanSessionModel: ObservableObject {
                 self.instruction = "缓慢移动，扫描墙面和家具"
                 UIApplication.shared.isIdleTimerDisabled = true
                 controller.captureView.captureSession.run(configuration: .init())
+                let headingRecorder = HeadingRecorder()
+                headingRecorder.onStatus = { [weak self] status in
+                    Task { @MainActor in self?.headingStatus = status }
+                }
+                self.headingRecorder = headingRecorder
+                headingRecorder.start(session: controller.captureView.captureSession.arSession)
                 self.timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
                     Task { @MainActor in self?.tick() }
                 }
@@ -108,7 +116,7 @@ final class ScanSessionModel: ObservableObject {
         guard canCapture, let frame = controller?.captureView.captureSession.arSession.currentFrame else { return }
         samplePending = true
         lastSampleTime = frame.timestamp
-        recorder?.record(frame, manual: manual) { [weak self] result in
+        recorder?.record(frame, manual: manual, compass: headingRecorder?.snapshot(for: frame)) { [weak self] result in
             guard let self else { return }
             self.samplePending = false
             switch result {
@@ -157,6 +165,7 @@ final class ScanSessionModel: ObservableObject {
         phase = .finishing
         stopTimeout?.cancel()
         stopTimer()
+        value.orientation = manifest?.orientation
         if let error { warnings.append("RoomPlan 结束时报告：\(error.localizedDescription)") }
         value.status = .processing
         let pendingWarnings = warnings
@@ -212,6 +221,19 @@ final class ScanSessionModel: ObservableObject {
     }
 
     private func stopTimer() {
+        if let headingRecorder {
+            let capture = headingRecorder.finish()
+            self.headingRecorder = nil
+            manifest?.orientation = capture.orientation
+            warnings += capture.warnings
+            if let value = manifest {
+                do {
+                    let directory = ScanFiles.directory(for: value.id)
+                    try ScanFiles.write(capture, to: directory.appendingPathComponent("heading.json"))
+                    try ScanFiles.write(value, to: directory.appendingPathComponent("manifest.json"))
+                } catch { warnings.append("朝向记录保存失败：\(error.localizedDescription)") }
+            }
+        }
         timer?.invalidate()
         timer = nil
         UIApplication.shared.isIdleTimerDisabled = false

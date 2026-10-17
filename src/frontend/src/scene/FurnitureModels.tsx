@@ -1,5 +1,6 @@
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useGLTF } from '@react-three/drei'
+import { useThree } from '@react-three/fiber'
 import type { Object3D } from 'three'
 import { Box3, Group, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
@@ -12,6 +13,8 @@ function cloneForDisplay(source: Object3D, ghost: boolean) {
   clone.traverse((child) => {
     if (!('isMesh' in child) || !child.isMesh) return
     const mesh = child as Object3D & { material?: any }
+    child.castShadow = true
+    child.receiveShadow = true
     if (!mesh.material) return
     mesh.material = Array.isArray(mesh.material) ? mesh.material.map((material) => material.clone()) : mesh.material.clone()
     if (ghost) {
@@ -28,6 +31,7 @@ function cloneForDisplay(source: Object3D, ghost: boolean) {
 }
 
 function ModelObject({ modelUrl, size }: { modelUrl: string; size: Vec3 }) {
+  const gl = useThree((state) => state.gl)
   const { scene } = useGLTF(modelUrl)
   const fit = useMemo(() => {
     // Keep the GLB's own node transforms (including the real-scale wrapper),
@@ -46,6 +50,7 @@ function ModelObject({ modelUrl, size }: { modelUrl: string; size: Vec3 }) {
       scale: [size[0] / Math.max(extents.x, 0.0001), size[1] / Math.max(extents.y, 0.0001), size[2] / Math.max(extents.z, 0.0001)] as Vec3,
     }
   }, [scene, size])
+  useEffect(() => { gl.shadowMap.needsUpdate = true }, [fit, gl])
   return <group scale={fit.scale}><group position={[-fit.center.x, -fit.center.y, -fit.center.z]}><primitive object={fit.display} /></group></group>
 }
 

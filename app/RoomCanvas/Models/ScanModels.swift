@@ -31,6 +31,7 @@ struct ScanManifest: Codable, Identifiable {
     var warnings: [String] = []
     var files: [String] = []
     var capturePolicy = CapturePolicy()
+    var orientation: ScanOrientation?
 }
 
 struct CapturePolicy: Codable {
@@ -52,6 +53,7 @@ struct SceneRecord: Codable {
     var roomIdentifier: String
     var surfaces: [SurfaceRecord]
     var objects: [FurnitureRecord]
+    var orientation: ScanOrientation?
 }
 
 struct SurfaceRecord: Codable, Identifiable {
@@ -118,6 +120,7 @@ struct CameraFrameRecord: Codable, Identifiable {
     var lightIntensity: Double?
     var manuallyRequested: Bool
     var depth: DepthRecord?
+    var compass: CompassSample?
 
     func validatedForStorage() throws -> CameraFrameRecord {
         guard timestamp.isFinite else { throw ScanError.message("\(id): timestamp 不是有限数值。") }
@@ -149,6 +152,48 @@ struct DepthRecord: Codable {
     var format = "float32-little-endian, tightly packed rows, meters"
     var confidenceFormat = "uint8, tightly packed rows; 0=low, 1=medium, 2=high"
     var alignment = "native camera image orientation; scale intrinsics to depth resolution"
+}
+
+struct ScanLocation: Codable {
+    var latitude: Double
+    var longitude: Double
+    var accuracyMeters: Double
+    var timestamp: Date
+}
+
+struct CompassSample: Codable {
+    var arTimestamp: TimeInterval
+    var motionTimestamp: TimeInterval
+    var headingTimestamp: Date
+    var reference: String
+    var headingDegrees: Double
+    var headingAccuracyDegrees: Double
+    var northInWorld: [Float]
+    var portraitCameraToWorld: [Float]
+    var northReferenceToDevice: [Float]
+}
+
+struct ScanOrientation: Codable {
+    var method = "coremotion-north-reference-paired-with-arkit-portrait-camera"
+    var reference: String
+    var northInWorld: [Float]
+    var eastInWorld: [Float]
+    var southInWorld: [Float]
+    var westInWorld: [Float]
+    var accuracyDegrees: Double
+    var sampleCount: Int
+    var coherence: Double
+    var utcOffsetMinutes: Int
+    var timeZoneIdentifier: String
+    var location: ScanLocation?
+}
+
+struct HeadingCapture: Codable {
+    var schemaVersion = "roomcanvas.heading.v1"
+    var coordinateSystem = "ARKit right-handed, Y-up, original session world space"
+    var samples: [CompassSample]
+    var orientation: ScanOrientation?
+    var warnings: [String]
 }
 
 enum CategoryNames {

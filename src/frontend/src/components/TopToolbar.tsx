@@ -1,28 +1,18 @@
 import {
-  CloudSun,
-  Moon,
   Play,
   Save,
   Square,
-  Sun,
 } from 'lucide-react'
-import { useRoomCanvasStore, type LightingPreset } from '../state/useRoomCanvasStore'
+import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
+import { SolarControls } from './SolarControls'
 
 interface TopToolbarProps {
   onToast: (message: string) => void
 }
 
-const lightingTools: Array<{ id: LightingPreset; label: string; icon: typeof Sun }> = [
-  { id: 'morning', label: '晨光', icon: CloudSun },
-  { id: 'sunset', label: '暖阳', icon: Sun },
-  { id: 'night', label: '夜灯', icon: Moon },
-]
-
 export function TopToolbar({ onToast }: TopToolbarProps) {
   const mode = useRoomCanvasStore((state) => state.mode)
-  const lightingPreset = useRoomCanvasStore((state) => state.lightingPreset)
   const setMode = useRoomCanvasStore((state) => state.setMode)
-  const setLightingPreset = useRoomCanvasStore((state) => state.setLightingPreset)
 
   const playMode = mode === 'play'
 
@@ -53,20 +43,7 @@ export function TopToolbar({ onToast }: TopToolbarProps) {
       </div>
 
       <div className="toolbar-section toolbar-actions">
-        <div className="lighting-tools" aria-label="Lighting presets">
-          {lightingTools.map(({ id, label, icon: Icon }) => (
-            <button
-              className={`icon-label-button ${lightingPreset === id ? 'is-active' : ''}`}
-              key={id}
-              type="button"
-              onClick={() => setLightingPreset(id)}
-              title={`切换到${label}`}
-            >
-              <Icon size={14} />
-              <span>{label}</span>
-            </button>
-          ))}
-        </div>
+        {!playMode && <SolarControls />}
         <button className="save-button" type="button" onClick={() => onToast('场景状态已保存到本地草稿')}>
           <Save size={15} />
           <span>保存场景</span>

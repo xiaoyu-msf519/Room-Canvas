@@ -20,7 +20,7 @@ final class FrameRecorder {
         self.policy = policy
     }
 
-    func record(_ frame: ARFrame, manual: Bool, completion: @escaping (Result<Int, Error>) -> Void) {
+    func record(_ frame: ARFrame, manual: Bool, compass: CompassSample? = nil, completion: @escaping (Result<Int, Error>) -> Void) {
         queue.async { [self] in
             do {
                 guard frames.count < policy.maximumFrames else {
@@ -71,7 +71,7 @@ final class FrameRecorder {
                     trackingState: Self.trackingDescription(frame.camera.trackingState),
                     sharpness: Self.edgeEnergy(buffer),
                     lightIntensity: frame.lightEstimate.map { Double($0.ambientIntensity) },
-                    manuallyRequested: manual, depth: depth
+                    manuallyRequested: manual, depth: depth, compass: compass
                 ).validatedForStorage()
                 try ScanFiles.write(record, to: directory.appendingPathComponent("frames/\(id).json"))
                 let updatedFrames = frames + [record]

@@ -94,7 +94,7 @@ enum ScanProcessor {
             objects.append(record)
         }
         let scene = SceneRecord(scanId: manifest.id, roomIdentifier: room.identifier.uuidString,
-                                surfaces: surfaces, objects: objects)
+                                surfaces: surfaces, objects: objects, orientation: manifest.orientation)
         try ScanFiles.write(scene, to: directory.appendingPathComponent("scene.json"))
         do {
             try room.export(to: directory.appendingPathComponent("room.usdz"), exportOptions: .mesh)

@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { SceneCanvas } from './scene/SceneCanvas'
 import { HudLayout } from './components/HudLayout'
 import { useScanSync } from './state/useScanSync'
+import { useSolarScanSync } from './state/useSolarScanSync'
 
 export default function App() {
   useScanSync()
+  useSolarScanSync()
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {

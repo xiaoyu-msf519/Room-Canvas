@@ -36,6 +36,7 @@ struct ScanScreen: View {
                             Spacer()
                             Label("\(session.frameCount) 帧", systemImage: "photo.stack")
                         }.font(.caption.monospacedDigit())
+                        Label(session.headingStatus, systemImage: "location.north.line").font(.caption)
                         if let message = session.message { Text(message).font(.caption).foregroundStyle(.yellow) }
                         HStack(spacing: 32) {
                             Button { session.sample(manual: true) } label: {

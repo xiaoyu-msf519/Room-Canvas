@@ -41,6 +41,7 @@ export function createWallTransparency(walls: WallVisual[]) {
       const geometry = CSG.toGeometry(CSG.fromPolygons(faces), identity)
       const mesh = new Mesh(geometry, walls[index].material)
       mesh.name = 'scan-wall-fragment'
+      mesh.receiveShadow = true
       mesh.userData.wallId = walls[index].surface.id
       meshes.push(mesh)
       return mesh

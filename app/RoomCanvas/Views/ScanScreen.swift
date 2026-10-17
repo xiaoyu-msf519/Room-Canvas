@@ -9,6 +9,7 @@ struct RoomScannerView: UIViewControllerRepresentable {
 
 struct ScanScreen: View {
     @StateObject private var session = ScanSessionModel()
+    @EnvironmentObject private var uploads: AutoUploadQueue
     @Environment(\.scenePhase) private var scenePhase
     @State private var confirmingCancel = false
     let close: (UUID?) -> Void
@@ -72,6 +73,8 @@ struct ScanScreen: View {
                     } else if let result = session.result {
                         Image(systemName: "checkmark.circle.fill").font(.system(size: 48)).foregroundStyle(.teal)
                         Text("已保存").font(.title2.weight(.semibold))
+                        Text(uploads.status(for: result.id)).font(.footnote).foregroundStyle(.secondary)
+                        if uploads.uploader.scanId == result.id && uploads.uploader.busy { ProgressView(value: uploads.uploader.progress) }
                         HStack {
                             StatValue(value: "\(result.objectCount)", title: "物品")
                             StatValue(value: "\(result.croppedObjectCount)", title: "已生成裁剪")

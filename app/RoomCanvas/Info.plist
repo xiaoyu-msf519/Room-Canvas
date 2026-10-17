@@ -19,6 +19,8 @@
     <key>NSMotionUsageDescription</key>
     <string>扫描时将手机指南针姿态与 AR 相机位姿配对，记录房间的东南西北方向。</string>
     <key>UIFileSharingEnabled</key><true/>
+    <key>NSLocalNetworkUsageDescription</key><string>连接同一局域网中的 RoomCanvas 接收端，将扫描自动发送到 Web。</string>
+    <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
     <key>LSSupportsOpeningDocumentsInPlace</key><true/>
     <key>UIRequiresFullScreen</key><true/>
     <key>UIApplicationSceneManifest</key>

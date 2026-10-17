@@ -3,6 +3,13 @@ import simd
 @testable import RoomCanvas
 
 final class ArchiveTests: XCTestCase {
+    func testMobileReceiverURLValidation() throws {
+        XCTAssertEqual(try UploadSettings.receiverURL("https://example.trycloudflare.com").scheme, "https")
+        XCTAssertEqual(try UploadSettings.receiverURL("http://192.168.1.10:8001").port, 8001)
+        for invalid in ["http://public.example", "http://a.10.0.0.1", "https://host/api/mobile", "https://user:password@host", "https://host?token=x", "https://host#fragment"] {
+            XCTAssertThrowsError(try UploadSettings.receiverURL(invalid))
+        }
+    }
     private func cameraFrame() -> CameraFrameRecord {
         CameraFrameRecord(
             id: "frame_0001", timestamp: 1, imagePath: "frames/frame_0001.jpg",

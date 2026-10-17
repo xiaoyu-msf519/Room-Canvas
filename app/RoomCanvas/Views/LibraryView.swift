@@ -3,6 +3,7 @@ import SwiftUI
 
 struct LibraryView: View {
     @EnvironmentObject private var library: ScanLibrary
+    @EnvironmentObject private var uploads: AutoUploadQueue
     @State private var path: [UUID] = []
     @State private var showingScanner = false
     @State private var pendingScan: UUID?
@@ -39,6 +40,9 @@ struct LibraryView: View {
             }
             .navigationTitle("RoomCanvas")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink { UploadSettingsView() } label: { Label("连接 Web", systemImage: "network") }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button { showingScanner = true } label: { Label("扫描房间", systemImage: "plus.viewfinder") }
                         .help("扫描房间")
@@ -84,6 +88,7 @@ struct LibraryView: View {
                     Text(scan.status.title).foregroundStyle(scan.status == .complete ? Color.teal : Color.red)
                     Text("\(scan.objectCount) 件物品 · \(scan.frameCount) 帧").foregroundStyle(.secondary)
                 }.font(.caption)
+                if scan.status == .complete { Text(uploads.status(for: scan.id)).font(.caption).foregroundStyle(.secondary) }
             }
         }.padding(.vertical, 4)
     }

@@ -4,13 +4,14 @@ import asyncio
 import hashlib
 import json
 import os
+import socket
 import shutil
 import uuid
 import zipfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.background import BackgroundTask
 
 from .scan_crops import CROP_POLICY, prepare_furniture_crop, CropNeedsReview
@@ -18,6 +19,8 @@ from .scan_import import MAX_BUNDLE_BYTES, bundle_inventory, find_bundle
 from .scan_cache import CACHE_FOLDER, MAX_CACHE_BYTES, cache_index, cache_resources, restore_cache, save_cache
 from .scans import adapt_scan, read_json, safe_path, write_json
 from .surface_materials import apply_finishes
+from .mobile_config import public_endpoint, upload_token
+from .mobile_ingest import MAX_SCAN_BYTES
 
 
 def register_scan_routes(app: FastAPI, root: Path, start_generation, read_generation) -> None:
@@ -29,6 +32,7 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
     cache_locks: dict[str, asyncio.Lock] = {}
     library_root = Path(os.getenv("ROOMCANVAS_LIBRARY_DIR", str(root / "reference/ToCodex/room"))).resolve()
     models_root = root / "tmp/models"
+    mobile_worker: asyncio.Task | None = None
 
     def scene_path(scene_id: str) -> Path:
         if not scene_id.isalnum():
@@ -210,11 +214,24 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                 schedule(scene)
             elif pipeline:
                 monitor_cache(scene["id"])
+        nonlocal mobile_worker
+        async def receive_mobile():
+            while True:
+                await app.state.consume_mobile_uploads()
+                await asyncio.sleep(1)
+        if mobile_worker is None or mobile_worker.done():
+            mobile_worker = asyncio.create_task(receive_mobile())
 
-    async def adopt(bundle: Path, auto: bool, cache_target: Path | None = None) -> dict:
+    @app.on_event("shutdown")
+    async def stop_mobile_receiver() -> None:
+        if mobile_worker:
+            mobile_worker.cancel()
+            await asyncio.gather(mobile_worker, return_exceptions=True)
+
+    async def adopt(bundle: Path, auto: bool, cache_target: Path | None = None, max_bytes: int = MAX_BUNDLE_BYTES) -> dict:
         async with import_lock:
             try:
-                scan_id, fingerprint, files = await asyncio.to_thread(bundle_inventory, bundle)
+                scan_id, fingerprint, files = await asyncio.to_thread(bundle_inventory, bundle, max_bytes=max_bytes)
                 existing = None
                 matching_scan = False
                 for path in scenes_root.glob("*/scene-manifest.json"):
@@ -227,7 +244,7 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                         prior = candidate.get("importFingerprint")
                         if not prior:
                             try:
-                                _, prior, _ = await asyncio.to_thread(bundle_inventory, bundle_path(candidate))
+                                _, prior, _ = await asyncio.to_thread(bundle_inventory, bundle_path(candidate), max_bytes=max_bytes)
                             except (OSError, ValueError, KeyError, TypeError):
                                 continue
                         if prior == fingerprint:
@@ -261,6 +278,38 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                 return refresh(load(scene["id"]))
             except (ValueError, KeyError, TypeError, OSError) as error:
                 raise HTTPException(422, f"扫描包无效: {error}") from error
+
+    async def consume_mobile_uploads() -> None:
+        for path in sorted((root / "tmp/mobile-inbox").glob("*.json")):
+            event = None
+            try:
+                event = read_json(path)
+                if event.get("status") != "pending":
+                    continue
+                bundle = safe_path(library_root, event["folder"])
+                if str(read_json(bundle / "manifest.json")["id"]).lower() != event["scanId"].lower():
+                    raise ValueError("手机上传的扫描身份不一致")
+                scene = await adopt(bundle, True, cache_target=bundle, max_bytes=MAX_SCAN_BYTES)
+                event.update(status="complete", sceneId=scene["id"], error=None)
+                write_json(path, event)
+            except (OSError, ValueError, KeyError, TypeError, HTTPException):
+                if isinstance(event, dict):
+                    event.update(status="failed", error="Web 导入失败，请检查采集包与缓存状态")
+                    try:
+                        write_json(path, event)
+                    except OSError:
+                        pass
+    app.state.consume_mobile_uploads = consume_mobile_uploads
+
+    @app.get("/api/mobile/connection")
+    async def mobile_connection(request: Request) -> JSONResponse:
+        if request.client is None or request.client.host not in ("127.0.0.1", "::1", "testclient"):
+            raise HTTPException(403, "只能从接收电脑本机查看连接信息")
+        addresses = sorted({entry[4][0] for entry in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET) if not entry[4][0].startswith("127.")})
+        endpoint = public_endpoint(root)
+        endpoints = ([endpoint] if endpoint else []) + [f"http://{address}:8001" for address in addresses]
+        return JSONResponse({"endpoint": endpoints[0] if endpoints else "http://127.0.0.1:8001", "endpoints": endpoints,
+                             "token": upload_token(root), "protocol": "roomcanvas.upload.v1"}, headers={"Cache-Control": "no-store"})
 
     @app.post("/api/scans/demo")
     async def import_demo() -> dict:
@@ -306,7 +355,7 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
         metadata, bundle = entry
         if metadata["status"] != "complete":
             raise HTTPException(422, "这份 App 扫描未完成或缓存无效，不能自动建房")
-        return await adopt(bundle, auto_reconstruct, cache_target=bundle)
+        return await adopt(bundle, auto_reconstruct, cache_target=bundle, max_bytes=MAX_SCAN_BYTES)
 
     @app.post("/api/scans", status_code=201)
     async def upload_scan(files: list[UploadFile] = File(...), auto_reconstruct: bool = True) -> dict:

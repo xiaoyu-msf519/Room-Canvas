@@ -16,7 +16,7 @@ def find_bundle(directory: Path) -> Path:
     return manifests[0].parent
 
 
-def bundle_inventory(bundle: Path) -> tuple[str, str, list[str]]:
+def bundle_inventory(bundle: Path, *, max_bytes: int = MAX_BUNDLE_BYTES) -> tuple[str, str, list[str]]:
     manifest = read_json(bundle / "manifest.json")
     source = read_json(bundle / "scene.json")
     cameras = read_json(bundle / "cameras.json")
@@ -51,8 +51,8 @@ def bundle_inventory(bundle: Path) -> tuple[str, str, list[str]]:
         if relative not in ("manifest.json", "scene.json", "cameras.json") and path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".f32", ".u8"):
             raise ValueError("扫描资源必须为图片或原生深度文件")
         total += path.stat().st_size
-        if total > MAX_BUNDLE_BYTES:
-            raise ValueError("所需扫描数据不能超过 300 MB")
+        if total > max_bytes:
+            raise ValueError(f"所需扫描数据不能超过 {max_bytes // (1024 * 1024)} MB")
         paths.append(relative)
         if relative not in ("manifest.json", "scene.json", "cameras.json"):
             digest.update(relative.encode())

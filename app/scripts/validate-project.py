@@ -67,10 +67,10 @@ def validate():
                 errors.append(f"Missing asset: {image['filename']}")
     checks.append("Asset catalogs and app icon references resolved")
     app_text = "\n".join(file.read_text(encoding="utf-8") for file in sources if "RoomCanvasTests" not in str(file))
-    for unwanted in ["URLSession", "http://", "https://", "WKWebView"]:
+    for unwanted in ["WKWebView"]:
         if unwanted in app_text:
-            errors.append(f"Unexpected network/web dependency in native offline app: {unwanted}")
-    checks.append("No HTTP clients or embedded website in app source")
+            errors.append(f"Unexpected embedded website in native scanner: {unwanted}")
+    checks.append("Native scanner with explicit upload client; no embedded website")
     report = {"kind": "static-validation", "checks": checks, "errors": errors,
               "limitations": ["No Swift SDK type checking", "No Xcode build", "No XCTest execution", "No LiDAR device run"]}
     output = ROOT / "verification/local-report.json"

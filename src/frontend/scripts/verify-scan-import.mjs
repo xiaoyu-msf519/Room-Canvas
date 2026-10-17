@@ -63,6 +63,10 @@ try {
   const markup = renderToStaticMarkup(React.createElement(ScanPanel, { onToast() {} }))
   assert.ok(markup.includes('房间已建成') && markup.includes('北向待校准') && markup.includes('webkitdirectory'))
   assert.equal(markup.includes('继续家具重建'), false, 'Automatic import still requires a manual reconstruction click')
+  assert.ok(markup.includes('连接 App') && markup.includes('手机接收端'), 'Mobile receiver pairing control is missing')
+  const { AssetDrawer } = await vite.ssrLoadModule('/src/components/AssetDrawer.tsx')
+  const assetsMarkup = renderToStaticMarkup(React.createElement(AssetDrawer, { onToast() {} }))
+  assert.equal(assetsMarkup.includes('淘宝商品链接'), false, 'Reserved product URL input was not removed')
   Object.assign(useRoomCanvasStore.getInitialState().scan, {
     furniture: [
       { id: 'one', name: 'chair', generationStatus: 'generating' },

@@ -1,5 +1,15 @@
 # RoomCanvas 本地扫描协议 v1
 
+## 自动发送到 Web
+
+扫描完成并成功写入 complete 清单后，App 自动加入持久化发送队列。首次在 Web“连接 App”显示连接二维码，在 App“连接 Web”扫码或粘贴连接 JSON，保存并测试连接。上传令牌保存在 iOS Keychain，地址和发送队列保存在应用自有 UserDefaults，令牌不进入扫描文件。
+
+采用 `roomcanvas.upload.v1` 协议：创建会话、每块最多 2 MiB 的 SHA-256 校验上传、确认偏移、提交完整 ZIP 校验、轮询发布结果。整体 ZIP 上限 2 GiB。状态 complete 表示接收端已验证并加入 Web 房间列表、启动自动处理，不表示 Rodin 模型此时已经全部完成。
+
+同一扫描重发复用会话及内容身份，不重复建模。断网会自动重试；进入后台时暂停并保留确认偏移，重新进入 App 后自动恢复。配置更换后可使用新接收端。系统没有保证 App 长时间在后台连续执行网络任务，本实现不宣称无限后台上传。
+
+Cloudflare 公网地址必须 HTTPS；普通 Web 编辑 API 不对公网隧道开放，隧道只连接上传网关。临时 Quick Tunnel 地址重启后可能变化，应更新 App 的连接信息。没有配置连接信息时，扫描仍正常保存在本地并排队等待，不要求重新扫描。
+
 ## 清单与状态
 
 `manifest.json`：`schemaVersion=roomcanvas.scan.v1`，`id` 是扫描 UUID。`status` 为 capturing / processing / complete / interrupted / failed。只有 complete 表示最终场景处理完成；USDZ 等可选导出失败会记录在 warnings。

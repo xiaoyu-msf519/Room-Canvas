@@ -3,6 +3,7 @@ import { Archive, Download, FolderOpen, ScanLine, WandSparkles, RefreshCw } from
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import type { SceneManifest } from '../types/scene'
 import { collectScanFiles, uploadScan } from '../services/scanUpload'
+import { MobileConnection } from './MobileConnection'
 
 export function ScanPanel({ onToast }: { onToast: (message: string) => void }) {
   const scan = useRoomCanvasStore((state) => state.scan)
@@ -72,6 +73,7 @@ export function ScanPanel({ onToast }: { onToast: (message: string) => void }) {
       <input ref={zipInput} type="file" accept=".zip" hidden onChange={(event) => void upload(event)} />
       <input ref={folderInput} type="file" hidden multiple {...{ webkitdirectory: '' }} onChange={(event) => void upload(event)} />
     </div>
+    <MobileConnection onToast={onToast} />
     {rooms.length > 0 && <select className="scan-room-select" aria-label="选择本机扫描房间" disabled={busy} value={rooms.find((room) => room.scanId === scan?.source.scanId)?.id ?? ''} onChange={(event) => { if (event.target.value) void request(`/api/room-library/${event.target.value}/load`) }}>
       <option value="" disabled>选择房间（{rooms.length} 份采集）</option>
       {rooms.map((room) => <option key={room.id} value={room.id} disabled={room.status !== 'complete'} title={room.folder}>{room.title} · {room.status !== 'complete' ? '扫描未完成' : `${room.cachedModels}/${room.objectCount} 已缓存`}</option>)}

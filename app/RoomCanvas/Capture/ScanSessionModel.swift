@@ -227,6 +227,7 @@ final class ScanSessionModel: ObservableObject {
                     self.manifest = finished
                     self.phase = .complete
                     self.instruction = "已保存"
+                    AutoUploadQueue.shared.enqueue(finished.id)
                 } catch { self.fail(error) }
             }
         }

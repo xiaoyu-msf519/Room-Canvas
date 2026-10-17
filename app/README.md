@@ -1,6 +1,8 @@
 # RoomCanvas Scanner
 
-原生 iOS / iPadOS 离线扫描 App。最低系统版本 17.0，扫描需要受支持的 LiDAR 真机。无后端、无账号、无网络上传、无第三方运行时依赖。
+原生 iOS / iPadOS 扫描 App。最低系统版本 17.0，扫描需要受支持的 LiDAR 真机。本地扫描不依赖网络；配置 Web 接收端后，完成的采集会自动通过带令牌的分块上传发送到 Web。App 使用系统框架，上传令牌存储在 Keychain。
+
+Web 点击“连接 App”显示二维码；App 的“连接 Web”扫码并保存、测试后，后续扫描自动排队发送。公网连接使用 Cloudflare HTTPS 上传网关，详细协议与前后台续传行为见 `docs/DATA_CONTRACT.md`。新增功能需要用 Xcode 重新编译安装，Windows 静态验证不代表已完成 iOS SDK 编译或真机验收。
 
 **交付状态：完整 Xcode 源码工程；当前 Windows 主机完成了静态检查，尚未完成 Apple SDK 编译、签名或真机扫描。这里没有预先签名的 IPA。** 不应把此状态描述为“已验证可直接安装”。
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
-import { ClipboardPaste, FileImage, Link, PackageOpen, Plus, Ruler, Upload, X } from 'lucide-react'
+import { ClipboardPaste, FileImage, PackageOpen, Plus, Ruler, Upload, X } from 'lucide-react'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import type { AssetSource, UploadedAsset } from '../types/scene'
 
@@ -115,7 +115,6 @@ export function AssetDrawer({ onToast }: AssetDrawerProps) {
         <div className="drop-icon"><FileImage size={20} /></div><strong>{dragging ? '松开以导入商品图' : '拖拽商品图到这里'}</strong><span>淘宝缩略图 / 本地图片 / 截图</span>
         <div className="drop-hints"><span><ClipboardPaste size={11} /> Ctrl + V</span><span><Upload size={11} /> 点击上传</span></div>
       </div>
-      <div className="url-input-row is-disabled"><Link size={14} /><input disabled placeholder="淘宝商品链接（预留，暂未开放）" /><span className="disabled-label">SOON</span></div>
     </div>
     <div className="asset-list-column">
       <div className="drawer-list-heading"><div><span>商品资产</span><em>{String(assets.length).padStart(2, '0')}</em></div><span>UPLOAD → RODIN → SCALE</span></div>

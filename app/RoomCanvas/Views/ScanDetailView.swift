@@ -4,6 +4,7 @@ import SwiftUI
 struct ScanDetailView: View {
     let scanId: UUID
     @EnvironmentObject private var library: ScanLibrary
+    @EnvironmentObject private var uploads: AutoUploadQueue
     @State private var scene: SceneRecord?
     @State private var frames: [CameraFrameRecord] = []
     @State private var exporting = false
@@ -26,6 +27,15 @@ struct ScanDetailView: View {
                     }.padding(.vertical, 8)
                     LabeledContent("状态", value: manifest.status.title)
                     LabeledContent("扫描时间", value: manifest.createdAt.formatted(date: .abbreviated, time: .shortened))
+                }
+                if manifest.status == .complete {
+                    Section("Web 同步") {
+                        Text(uploads.status(for: scanId)).font(.footnote)
+                        if uploads.uploader.scanId == scanId && uploads.uploader.busy { ProgressView(value: uploads.uploader.progress) }
+                        NavigationLink { UploadSettingsView() } label: { Label("接收端设置", systemImage: "network") }
+                        Button { uploads.enqueue(scanId) } label: { Label("发送到 Web", systemImage: "arrow.up.doc") }
+                            .disabled(uploads.pending.contains(scanId))
+                    }
                 }
                 if FileManager.default.fileExists(atPath: directory.appendingPathComponent("room.usdz").path) {
                     Section {
@@ -173,6 +183,7 @@ struct ScanDetailView: View {
                                                             warnings: ["由已保存的原始数据重新整理。"], directory: folder)
                 }.value
                 library.reload()
+                uploads.enqueue(scanId)
                 load()
             } catch { errorMessage = error.localizedDescription; library.reload() }
             reprocessing = false

@@ -70,6 +70,8 @@ export interface SceneManifest {
     imageSize?: [number, number]
     intrinsics?: [number, number, number, number, number, number, number, number, number]
     cameraToWorld?: number[]
+    materialTarget?: 'wall' | 'floor'
+    photometry?: { exposureDurationSeconds?: number; exposureOffset?: number; ambientColorTemperatureKelvin?: number }
   }>
   source: { worldOffset: Vec3; coordinateSystem: string; matrixLayout: string; scanId: string; orientation?: {
     reference: 'true-north' | 'magnetic-north'

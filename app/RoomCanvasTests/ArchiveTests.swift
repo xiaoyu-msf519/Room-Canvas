@@ -1,4 +1,5 @@
 import XCTest
+import simd
 @testable import RoomCanvas
 
 final class ArchiveTests: XCTestCase {
@@ -32,6 +33,41 @@ final class ArchiveTests: XCTestCase {
         frame = cameraFrame()
         frame.intrinsics[0] = .nan
         XCTAssertThrowsError(try frame.validatedForStorage())
+    }
+
+    func testMaterialCaptureRequiresSuitableDirectionAndDifferentView() {
+        let level = matrix_identity_float4x4
+        let downward = simd_float4x4(simd_quatf(angle: -.pi / 4, axis: SIMD3(1, 0, 0)))
+        let upward = simd_float4x4(simd_quatf(angle: .pi / 4, axis: SIMD3(1, 0, 0)))
+        XCTAssertTrue(SurfaceCaptureTarget.wall.accepts(level))
+        XCTAssertFalse(SurfaceCaptureTarget.floor.accepts(level))
+        XCTAssertTrue(SurfaceCaptureTarget.floor.accepts(downward))
+        XCTAssertFalse(SurfaceCaptureTarget.floor.accepts(upward))
+        XCTAssertFalse(SurfaceCaptureTarget.wall.accepts(downward))
+        XCTAssertFalse(SurfaceCaptureTarget.isNewView(level, after: level))
+        var translated = level
+        translated.columns.3.x = 0.16
+        XCTAssertTrue(SurfaceCaptureTarget.isNewView(translated, after: level))
+        let turned = simd_float4x4(simd_quatf(angle: .pi / 12, axis: SIMD3(0, 1, 0)))
+        XCTAssertTrue(SurfaceCaptureTarget.isNewView(turned, after: level))
+    }
+
+    func testMaterialMetadataRoundTripAndOldFrameCompatibility() throws {
+        var frame = cameraFrame()
+        frame.materialTarget = "floor"
+        frame.photometry = FramePhotometry(exposureDurationSeconds: 1.0 / 60, exposureOffset: 0.2, ambientColorTemperatureKelvin: 5000)
+        let encoded = try JSONEncoder().encode(frame.validatedForStorage())
+        let decoded = try JSONDecoder().decode(CameraFrameRecord.self, from: encoded)
+        XCTAssertEqual(decoded.materialTarget, "floor")
+        XCTAssertEqual(decoded.photometry?.ambientColorTemperatureKelvin, 5000)
+        frame.photometry = FramePhotometry(exposureDurationSeconds: .nan, exposureOffset: .infinity, ambientColorTemperatureKelvin: -1)
+        let sanitized = try frame.validatedForStorage()
+        XCTAssertNil(sanitized.photometry?.exposureDurationSeconds)
+        XCTAssertNil(sanitized.photometry?.exposureOffset)
+        XCTAssertNil(sanitized.photometry?.ambientColorTemperatureKelvin)
+        let legacy = try JSONDecoder().decode(CameraFrameRecord.self, from: JSONEncoder().encode(cameraFrame()))
+        XCTAssertNil(legacy.materialTarget)
+        XCTAssertNil(legacy.photometry)
     }
 
     func testEncodingFailureNamesFileAndFieldInsteadOfGenericFormatError() throws {

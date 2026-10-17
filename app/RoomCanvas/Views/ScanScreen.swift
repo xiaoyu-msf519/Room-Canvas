@@ -37,6 +37,15 @@ struct ScanScreen: View {
                             Label("\(session.frameCount) 帧", systemImage: "photo.stack")
                         }.font(.caption.monospacedDigit())
                         Label(session.headingStatus, systemImage: "location.north.line").font(.caption)
+                        Picker("采集目标", selection: $session.captureTarget) {
+                            ForEach(SurfaceCaptureTarget.allCases) { target in Text(target.title).tag(target) }
+                        }.pickerStyle(.segmented).environment(\.colorScheme, .dark).disabled(session.phase != .scanning)
+                        if session.captureTarget != .general {
+                            Text(session.materialCaptureHint.isEmpty
+                                 ? "对准无遮挡区域，停稳后自动补拍"
+                                 : session.materialCaptureHint)
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                         if let message = session.message { Text(message).font(.caption).foregroundStyle(.yellow) }
                         HStack(spacing: 32) {
                             Button { session.sample(manual: true) } label: {

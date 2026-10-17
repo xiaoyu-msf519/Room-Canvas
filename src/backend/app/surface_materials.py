@@ -95,6 +95,31 @@ def _dominant(rgb):
     return np.median(clean, axis=0), float(cluster.mean())
 
 
+def select_finish_frames(cameras: list[dict]) -> list[dict]:
+    normal = [camera for camera in cameras if camera.get("trackingState") == "normal"]
+    targeted = [camera for camera in normal if camera.get("materialTarget") in ("wall", "floor")]
+    if not targeted:
+        stride = max(3, int(np.ceil(len(normal) / 48)))
+        return [max(normal[index:index + stride], key=lambda camera: camera.get("sharpness", 0)) for index in range(0, len(normal), stride)]
+
+    def choose(records, limit):
+        if len(records) <= limit:
+            return records
+        def quality(camera):
+            exposure = (camera.get("photometry") or {}).get("exposureDurationSeconds") or 0.02
+            return camera.get("sharpness", 0) / max(1, exposure / 0.02)
+        return [max(records[index * len(records) // limit:(index + 1) * len(records) // limit], key=quality) for index in range(limit)]
+
+    # Plain paint has fewer edges than furniture. Reserve dedicated views so
+    # sharpness ranking cannot discard all of the intentionally captured floor.
+    chosen = []
+    for target in ("floor", "wall"):
+        chosen.extend(choose([camera for camera in targeted if camera["materialTarget"] == target], 16))
+    ordinary = [camera for camera in normal if camera.get("materialTarget") not in ("wall", "floor")]
+    chosen.extend(choose(ordinary, 48 - len(chosen)))
+    return chosen
+
+
 def estimate_finishes(bundle: Path, diagnostics: dict | None = None) -> dict[str, dict]:
     source = json.loads((bundle / "scene.json").read_text(encoding="utf-8"))
     cameras = json.loads((bundle / "cameras.json").read_text(encoding="utf-8"))
@@ -110,9 +135,7 @@ def estimate_finishes(bundle: Path, diagnostics: dict | None = None) -> dict[str
             valid &= ~((np.abs(local[:, 2]) < 0.16) & (np.abs(local[:, 0]) < half[0] + 0.06) & (np.abs(local[:, 1]) < half[1] + 0.06))
         records.append({"surface": surface, "points": points, "valid": valid, "shape": shape, "views": [], "raw": [], "filtered": [], "samples": [], "best": None})
     # Evenly distributed, sharp frames limit preprocessing time and duplicate views.
-    normal = [camera for camera in cameras if camera.get("trackingState") == "normal"]
-    stride = max(3, int(np.ceil(len(normal) / 48)))
-    chosen = [max(normal[index:index + stride], key=lambda camera: camera.get("sharpness", 0)) for index in range(0, len(normal), stride)]
+    chosen = select_finish_frames(cameras)
     for camera in chosen:
         if not all(camera.get(key) for key in ("nativePixelToSavedPixel", "intrinsics", "nativeImageWidth", "nativeImageHeight")):
             continue

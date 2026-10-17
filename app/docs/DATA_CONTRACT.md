@@ -45,6 +45,14 @@ v_saved = sy * u_native
 
 `sharpness` 是采样亮度拉普拉斯绝对值平均数，仅作为排序启发式，不是标准图像质量评分。
 
+### 墙地面涂装补拍
+
+扫描页可选择常规、墙面或地板目标，RoomPlan 会话和世界坐标始终连续。常规保持原有采样；墙面/地板自动补拍要求定位正常、相机基本停稳且方向合适，保存成功后需要平移至少 0.15m 或转向至少 10° 才自动保存下一张。手动拍摄可绕过停稳与方向门槛，后端仍按真实相机与深度验证可见性。补拍仍受原有 300 帧和 5 分钟上限约束。
+
+补拍帧增加可选 `materialTarget="wall" | "floor"`，表示拍摄意图，不表示已完成平面分割。常规帧省略该字段。Web 后端选帧时分别为墙面和地板补拍保留最多 16 帧，其余名额用于常规视角，总预算不超过 48 帧，防止低纹理涂装因清晰度分数低而全部被丢弃。
+
+所有新帧还可包含 `photometry`：`exposureDurationSeconds` 来自 ARCamera.exposureDuration，单位秒；`exposureOffset` 来自 ARCamera.exposureOffset，是 ARKit 后处理曝光偏移，不是相机 ISO 或实测反照率；`ambientColorTemperatureKelvin` 是 ARLightEstimate 的环境色温估计，单位 Kelvin。非有限或无效可选值省略，旧扫描不含这些字段也能读取。当前后端仅在补拍帧分组内用曝光时长辅助选帧，没有按这些数值强制消除照片光照或白平衡，也没有锁定 RoomPlan 管理的相机曝光。
+
 ## 家具图关联
 
 `objects/<object UUID>/metadata.json` 与 scene.objects 中对应对象的内容一致，包括类别、置信度、尺寸、变换、父 ID、原始参数路径、crops 和 supplementalImages。

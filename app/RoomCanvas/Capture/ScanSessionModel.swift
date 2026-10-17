@@ -2,6 +2,7 @@ import ARKit
 import AVFoundation
 import Foundation
 import RoomPlan
+import simd
 import SwiftUI
 import UIKit
 
@@ -20,6 +21,8 @@ final class ScanSessionModel: ObservableObject {
     @Published var cameraDenied = false
     @Published var result: ScanManifest?
     @Published var headingStatus = "朝向：校准中"
+    @Published var captureTarget: SurfaceCaptureTarget = .general
+    @Published var materialCaptureHint = ""
     weak var controller: RoomScanController?
     var onClose: (() -> Void)?
 
@@ -34,6 +37,10 @@ final class ScanSessionModel: ObservableObject {
     private var processingStarted = false
     private var preparingStarted = false
     private var warnings: [String] = []
+    private var lastMaterialPose: simd_float4x4?
+    private var lastMaterialTarget: SurfaceCaptureTarget?
+    private var recentPose: simd_float4x4?
+    private var recentPoseTime: TimeInterval?
     private var stopTimeout: Task<Void, Never>?
 
     var canCapture: Bool { phase == .scanning && frameCount < CapturePolicy().maximumFrames && !samplePending }
@@ -101,6 +108,19 @@ final class ScanSessionModel: ObservableObject {
             return
         }
         guard let frame = controller?.captureView.captureSession.arSession.currentFrame else { return }
+        let pose = frame.camera.transform
+        var steady = false
+        if let previous = recentPose, let time = recentPoseTime, frame.timestamp > time {
+            let interval = Float(frame.timestamp - time)
+            let movement = pose.columns.3 - previous.columns.3
+            let currentDirection = SIMD3(pose.columns.2.x, pose.columns.2.y, pose.columns.2.z)
+            let previousDirection = SIMD3(previous.columns.2.x, previous.columns.2.y, previous.columns.2.z)
+            let angle = acos(max(-1, min(1, simd_dot(currentDirection, previousDirection))))
+            steady = simd_length(SIMD3(movement.x, movement.y, movement.z)) / interval < 0.15
+                && angle / interval < Float.pi / 12
+        }
+        recentPose = pose
+        recentPoseTime = frame.timestamp
         if frameCount >= CapturePolicy().maximumFrames {
             instruction = "关键帧已达上限，请结束扫描"
             return
@@ -109,18 +129,41 @@ final class ScanSessionModel: ObservableObject {
             instruction = "定位尚未稳定，请缓慢移动手机"
             return
         }
+        if captureTarget != .general && !steady {
+            materialCaptureHint = "请停稳，等待自动补拍"
+            return
+        }
         if frame.timestamp - lastSampleTime >= CapturePolicy().automaticIntervalSeconds { sample(manual: false) }
     }
 
     func sample(manual: Bool) {
         guard canCapture, let frame = controller?.captureView.captureSession.arSession.currentFrame else { return }
+        let target = captureTarget
+        if !manual && target != .general {
+            guard target.accepts(frame.camera.transform) else {
+                materialCaptureHint = target == .floor ? "向下对准无遮挡的地板" : "平视对准无遮挡的墙面"
+                return
+            }
+            if lastMaterialTarget == target, let previous = lastMaterialPose,
+               !SurfaceCaptureTarget.isNewView(frame.camera.transform, after: previous) {
+                materialCaptureHint = "换一个位置或角度，再停稳补拍"
+                return
+            }
+        }
         samplePending = true
         lastSampleTime = frame.timestamp
-        recorder?.record(frame, manual: manual, compass: headingRecorder?.snapshot(for: frame)) { [weak self] result in
+        recorder?.record(frame, manual: manual, compass: headingRecorder?.snapshot(for: frame),
+                         materialTarget: target == .general ? nil : target.rawValue) { [weak self] result in
             guard let self else { return }
             self.samplePending = false
             switch result {
-            case .success(let count): self.frameCount = count
+            case .success(let count):
+                self.frameCount = count
+                if target != .general {
+                    self.lastMaterialPose = frame.camera.transform
+                    self.lastMaterialTarget = target
+                    self.materialCaptureHint = "已补拍，继续换角度覆盖\(target.title)"
+                }
             case .failure(let error): self.message = error.localizedDescription
             }
         }

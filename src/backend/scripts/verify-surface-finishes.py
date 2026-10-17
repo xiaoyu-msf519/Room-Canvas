@@ -12,7 +12,18 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "src/backend"))
 from app.scans import adapt_scan, write_json
-from app.surface_materials import apply_finishes, estimate_finishes
+from app.surface_materials import apply_finishes, estimate_finishes, select_finish_frames
+
+candidate_frames = [{"id": f"ordinary{i}", "trackingState": "normal", "sharpness": 100} for i in range(200)]
+candidate_frames += [{"id": f"{target}{i}", "materialTarget": target, "trackingState": "normal", "sharpness": 0.1,
+                      "photometry": {"exposureDurationSeconds": 1 / 60}} for target in ("floor", "wall") for i in range(30)]
+selected = select_finish_frames(candidate_frames)
+assert len(selected) == 48 and len({frame["id"] for frame in selected}) == 48
+assert sum(frame.get("materialTarget") == "floor" for frame in selected) == 16
+assert sum(frame.get("materialTarget") == "wall" for frame in selected) == 16
+assert sum(not frame.get("materialTarget") for frame in selected) == 16
+assert not select_finish_frames([{**candidate_frames[0], "trackingState": "limited"}])
+print("PASS: low-texture wall/floor capture targets retained within 48-frame budget")
 
 identity = np.eye(4)
 wall_pose = identity.copy()

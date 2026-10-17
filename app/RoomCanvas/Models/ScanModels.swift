@@ -44,6 +44,32 @@ struct CapturePolicy: Codable {
     var cropMethod = "final oriented bounding box projected into recorded RGB frames; not segmentation"
 }
 
+enum SurfaceCaptureTarget: String, CaseIterable, Identifiable, Hashable {
+    case general, wall, floor
+
+    var id: String { rawValue }
+    var title: String {
+        switch self { case .general: return "常规"; case .wall: return "墙面"; case .floor: return "地板" }
+    }
+
+    func accepts(_ pose: simd_float4x4) -> Bool {
+        let forwardY = -pose.columns.2.y
+        switch self {
+        case .general: return true
+        case .wall: return abs(forwardY) < 0.45
+        case .floor: return forwardY < -0.4
+        }
+    }
+
+    static func isNewView(_ pose: simd_float4x4, after previous: simd_float4x4) -> Bool {
+        let movement = pose.columns.3 - previous.columns.3
+        let currentDirection = SIMD3(pose.columns.2.x, pose.columns.2.y, pose.columns.2.z)
+        let previousDirection = SIMD3(previous.columns.2.x, previous.columns.2.y, previous.columns.2.z)
+        return simd_length(SIMD3(movement.x, movement.y, movement.z)) >= 0.15
+            || simd_dot(currentDirection, previousDirection) <= cos(Float.pi / 18)
+    }
+}
+
 struct SceneRecord: Codable {
     var schemaVersion = "roomcanvas.scene.v1"
     var scanId: UUID
@@ -123,6 +149,8 @@ struct CameraFrameRecord: Codable, Identifiable {
     var manuallyRequested: Bool
     var depth: DepthRecord?
     var compass: CompassSample?
+    var materialTarget: String?
+    var photometry: FramePhotometry?
 
     func validatedForStorage() throws -> CameraFrameRecord {
         guard timestamp.isFinite else { throw ScanError.message("\(id): timestamp 不是有限数值。") }
@@ -142,6 +170,22 @@ struct CameraFrameRecord: Codable, Identifiable {
         var value = self
         if !value.sharpness.isFinite || value.sharpness < 0 { value.sharpness = 0 }
         if let intensity = value.lightIntensity, !intensity.isFinite { value.lightIntensity = nil }
+        if let target = value.materialTarget, target != "wall" && target != "floor" { value.materialTarget = nil }
+        value.photometry = value.photometry?.sanitized()
+        return value
+    }
+}
+
+struct FramePhotometry: Codable {
+    var exposureDurationSeconds: Double?
+    var exposureOffset: Double?
+    var ambientColorTemperatureKelvin: Double?
+
+    func sanitized() -> FramePhotometry {
+        var value = self
+        if let duration = value.exposureDurationSeconds, !duration.isFinite || duration <= 0 { value.exposureDurationSeconds = nil }
+        if let offset = value.exposureOffset, !offset.isFinite { value.exposureOffset = nil }
+        if let kelvin = value.ambientColorTemperatureKelvin, !kelvin.isFinite || kelvin <= 0 { value.ambientColorTemperatureKelvin = nil }
         return value
     }
 }

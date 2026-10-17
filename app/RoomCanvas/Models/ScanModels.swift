@@ -100,8 +100,10 @@ struct CropRecord: Codable, Identifiable {
     var rectanglePixels: [Double]
     var visibleFraction: Double
     var score: Double
+    var edgeDistance: Double?
+    var neighborOverlap: Double?
     var reviewRequired = true
-    var method = "projected-3d-obb"
+    var method = "projected-3d-obb+vision-instance-mask"
 }
 
 struct CameraFrameRecord: Codable, Identifiable {

@@ -35,6 +35,14 @@ final class ProjectionTests: XCTestCase {
         XCTAssertNil(BoxProjection.project(object: object(z: 5), frame: frame()))
     }
 
+    func testEdgeAndNeighborSignalsPreferCleanFurnitureViews() throws {
+        let projected = try XCTUnwrap(BoxProjection.project(object: object(), frame: frame()))
+        let edge = PixelRectangle(x: 0, y: projected.rectangle.y, width: projected.rectangle.width, height: projected.rectangle.height)
+        let overlap = BoxProjection.intersectionRatio(projected.rectangle, edge)
+        XCTAssertGreaterThan(overlap, 0.9)
+        XCTAssertGreaterThan(projected.edgeDistance, 0)
+    }
+
     func testSmallAndOffscreenObjectsAreRejected() {
         XCTAssertNil(BoxProjection.project(object: object(z: -100), frame: frame()))
         XCTAssertNil(BoxProjection.project(object: object(x: 50), frame: frame()))

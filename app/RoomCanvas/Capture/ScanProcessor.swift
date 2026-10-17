@@ -1,7 +1,9 @@
 import Foundation
+import CoreImage
 import RoomPlan
 import simd
 import UIKit
+import Vision
 
 enum ScanProcessor {
     static func process(raw: CapturedRoomData, manifest initial: ScanManifest,
@@ -73,7 +75,18 @@ enum ScanProcessor {
             record.supplementalImages = previousScene?.objects.first(where: { $0.id == record.id })?.supplementalImages ?? []
             let candidates = frames.filter { $0.trackingState == "normal" }.compactMap { frame -> (CameraFrameRecord, ProjectedBox)? in
                 guard let projected = BoxProjection.project(object: record, frame: frame) else { return nil }
-                return (frame, projected)
+                let overlap = room.objects.compactMap { peer -> Double? in
+                    guard peer.identifier != object.identifier else { return nil }
+                    let peerRecord = FurnitureRecord(id: peer.identifier.uuidString, category: categoryName(peer.category), confidence: String(describing: peer.confidence), dimensions: [peer.dimensions.x, peer.dimensions.y, peer.dimensions.z], objectToWorld: MatrixValues.array(peer.transform), parentIdentifier: peer.parentIdentifier?.uuidString, rawMetadataPath: "")
+                    return BoxProjection.project(object: peerRecord, frame: frame).map { BoxProjection.intersectionRatio(projected.rectangle, $0.rectangle) }
+                }.max() ?? 0
+                var adjusted = projected
+                adjusted.neighborOverlap = overlap
+                // Similar neighboring furniture inside the projected box is a
+                // strong signal that this view will make an image-to-3D model
+                // merge objects. Penalize it while retaining a fallback view.
+                adjusted.score *= max(0.08, 1 - min(0.82, overlap * 1.7))
+                return (frame, adjusted)
             }.sorted { $0.1.score > $1.1.score }
 
             var chosenPositions: [SIMD3<Float>] = []
@@ -125,13 +138,17 @@ enum ScanProcessor {
             throw ScanError.message("无法读取关键帧。")
         }
         let rect = CGRect(x: CGFloat(rectangle.x), y: CGFloat(rectangle.y), width: CGFloat(rectangle.width), height: CGFloat(rectangle.height))
-        guard let cropped = source.cropping(to: rect),
-              let jpeg = UIImage(cgImage: cropped).jpegData(compressionQuality: 0.94) else {
+        guard let cropped = source.cropping(to: rect) else {
             throw ScanError.message("裁剪范围无效。")
         }
-        let imagePath = "\(folder)/crop_\(index).jpg"
+        let segmentation = try? foregroundCrop(source: source, crop: rect)
+        let outputImage = segmentation ?? UIImage(cgImage: cropped)
+        guard let data = segmentation != nil ? outputImage.pngData() : outputImage.jpegData(compressionQuality: 0.94) else {
+            throw ScanError.message("无法编码家具裁剪图。")
+        }
+        let imagePath = "\(folder)/crop_\(index).\(segmentation != nil ? "png" : "jpg")"
         let overlayPath = "\(folder)/context_\(index).jpg"
-        try jpeg.write(to: directory.appendingPathComponent(imagePath), options: .atomic)
+        try data.write(to: directory.appendingPathComponent(imagePath), options: .atomic)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: CGFloat(source.width), height: CGFloat(source.height)), format: format)
@@ -144,7 +161,43 @@ enum ScanProcessor {
         guard let overlayData = overlay.jpegData(compressionQuality: 0.85) else { throw ScanError.message("无法生成框选预览。") }
         try overlayData.write(to: directory.appendingPathComponent(overlayPath), options: .atomic)
         return CropRecord(frameId: frame.id, imagePath: imagePath, overlayPath: overlayPath,
-                          rectanglePixels: rectangle.values, visibleFraction: projection.visibleFraction, score: projection.score)
+                          rectanglePixels: rectangle.values, visibleFraction: projection.visibleFraction, score: projection.score,
+                          edgeDistance: projection.edgeDistance, neighborOverlap: projection.neighborOverlap,
+                          method: segmentation != nil ? "projected-3d-obb+vision-instance-mask" : "projected-3d-obb")
+    }
+
+    /// Vision's foreground instance mask separates adjacent chairs when the
+    /// image contains enough visual contrast. If it cannot identify the target
+    /// instance, the geometry crop remains the safe fallback.
+    private static func foregroundCrop(source: CGImage, crop: CGRect) throws -> UIImage? {
+        let handler = VNImageRequestHandler(cgImage: source, orientation: .up)
+        let request = VNGenerateForegroundInstanceMaskRequest()
+        try handler.perform([request])
+        guard let observation = request.results?.first else { return nil }
+        let lowMask = observation.instanceMask
+        let maskWidth = CVPixelBufferGetWidth(lowMask)
+        let maskHeight = CVPixelBufferGetHeight(lowMask)
+        CVPixelBufferLockBaseAddress(lowMask, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(lowMask, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(lowMask) else { return nil }
+        let rowBytes = CVPixelBufferGetBytesPerRow(lowMask)
+        let centerX = min(maskWidth - 1, max(0, Int((crop.midX / CGFloat(source.width) * CGFloat(maskWidth)).rounded())))
+        let centerY = min(maskHeight - 1, max(0, Int((crop.midY / CGFloat(source.height) * CGFloat(maskHeight)).rounded())))
+        let labels = base.assumingMemoryBound(to: UInt8.self)
+        let instance = Int(labels[centerY * rowBytes + centerX])
+        guard instance > 0, observation.allInstances.contains(instance) else { return nil }
+        let maskBuffer = try observation.generateScaledMaskForImage(forInstances: IndexSet(integer: instance), from: handler)
+        let input = CIImage(cgImage: source)
+        let mask = CIImage(cvPixelBuffer: maskBuffer)
+        let clear = CIImage(color: .clear).cropped(to: input.extent)
+        let output = input.applyingFilter("CIBlendWithMask", parameters: [
+            kCIInputBackgroundImageKey: clear,
+            kCIInputMaskImageKey: mask,
+        ])
+        let context = CIContext(options: [.cacheIntermediates: false])
+        let croppedOutput = output.cropped(to: crop)
+        guard let result = context.createCGImage(croppedOutput, from: croppedOutput.extent) else { return nil }
+        return UIImage(cgImage: result)
     }
 
     static func categoryName(_ category: CapturedRoom.Object.Category) -> String {

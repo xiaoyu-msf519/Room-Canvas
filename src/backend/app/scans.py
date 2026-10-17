@@ -130,6 +130,7 @@ def adapt_scan(bundle: Path, scene_id: str) -> dict:
     surfaces = []
     colliders = []
     floor_points = []
+    floor_record = None
     apertures = [s for s in source["surfaces"] if s["kind"] in ("door", "window", "opening")]
     for surface in source["surfaces"]:
         transform = matrix(surface["surfaceToWorld"])
@@ -141,7 +142,18 @@ def adapt_scan(bundle: Path, scene_id: str) -> dict:
         elif surface["kind"] == "floor":
             corners = surface.get("polygonCorners") or [[-surface["dimensions"][0]/2, -surface["dimensions"][1]/2, 0], [surface["dimensions"][0]/2, -surface["dimensions"][1]/2, 0], [surface["dimensions"][0]/2, surface["dimensions"][1]/2, 0], [-surface["dimensions"][0]/2, surface["dimensions"][1]/2, 0]]
             floor_points.extend(((transform @ [*corner, 1])[:3] + offset).tolist() for corner in corners)
-            surfaces.append({"id": surface["id"], "kind": "floor", "size": [*surface["dimensions"][:2], 0.05], "polygonCorners": corners, **pose(transform, offset)})
+            floor_record = {"id": surface["id"], "kind": "floor", "size": [*surface["dimensions"][:2], 0.05], "polygonCorners": corners, **pose(transform, offset)}
+            surfaces.append(floor_record)
+    if floor_record:
+        wall_tops = []
+        for wall in (surface for surface in source["surfaces"] if surface["kind"] == "wall"):
+            wall_transform = matrix(wall["surfaceToWorld"])
+            top = (wall_transform @ [0, wall["dimensions"][1] / 2, 0, 1])[1] + offset[1]
+            if math.isfinite(top): wall_tops.append(float(top))
+        if wall_tops:
+            ceiling = dict(floor_record)
+            ceiling.update(id="room-ceiling", kind="ceiling", position=[floor_record["position"][0], max(wall_tops), floor_record["position"][2]])
+            surfaces.append(ceiling)
     room_points = list(floor_points)
     for wall in (surface for surface in source["surfaces"] if surface["kind"] == "wall"):
         transform = matrix(wall["surfaceToWorld"])

@@ -12,6 +12,7 @@ export function Lighting() {
   const year = useSolarStore((state) => state.year)
   const site = useSolarStore((state) => state.site)
   const setStatus = useSolarStore((state) => state.setStatus)
+  const animationMode = useSolarStore((state) => state.animationMode)
   const room = useRoomCanvasStore((state) => state.scan?.room)
   const mode = useRoomCanvasStore((state) => state.mode)
   const { scene, gl } = useThree()
@@ -58,6 +59,7 @@ export function Lighting() {
   useFrame((_, delta) => {
     if (!sun.current || !moon.current || !ambient.current || !hemisphere.current) return
     const clock = useSolarStore.getState()
+    if (animationMode !== 'none') clock.advanceSolar(delta)
     if (table.current) sampleSolarDirection(table.current, clock.day, clock.minute, clock.north, rig.desired)
     // Spherical damping stays interruptible, including for opposite directions.
     rig.turn.setFromUnitVectors(rig.current, rig.desired)

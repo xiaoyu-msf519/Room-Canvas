@@ -20,6 +20,7 @@ manifest, raw, heading, cameras = [read(name) for name in ("manifest.json", "sce
 assert manifest["id"] == raw["scanId"]
 assert raw["orientation"] == manifest["orientation"] == heading["orientation"]
 assert len(cameras) == 104 and len(raw["objects"]) == 7
+assert len([surface for surface in raw["surfaces"] if surface["kind"] == "wall"]) == 10
 assert len(heading["samples"]) == 170
 max_delay = 0
 max_error = 0
@@ -54,6 +55,9 @@ for declination in [-20, 20]:
     np.testing.assert_allclose(synthetic["northInWorld"], [0, 0, -1], atol=1e-8)
 
 scene = adapt_scan(BUNDLE, "verification")
+assert len([surface for surface in scene["room"]["surfaces"] if surface["kind"] == "ceiling"]) == 1
+ceiling = next(surface for surface in scene["room"]["surfaces"] if surface["kind"] == "ceiling")
+assert ceiling["position"][1] > 1
 orientation = scene["source"]["orientation"]
 assert orientation["reference"] == "true-north" and orientation["sourceReference"] == "magnetic-north"
 assert -7 < orientation["correction"]["declinationDegrees"] < -6

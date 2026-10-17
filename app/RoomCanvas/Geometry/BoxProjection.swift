@@ -15,6 +15,8 @@ struct ProjectedBox {
     var visibleFraction: Double
     var centerDistance: Double
     var score: Double
+    var edgeDistance: Double = 1
+    var neighborOverlap: Double = 0
 }
 
 enum BoxProjection {
@@ -74,7 +76,12 @@ enum BoxProjection {
         let visibleFraction = ((x1 - x0) * (y1 - y0)) / rawArea
         // Reject tiny or heavily truncated views instead of claiming a successful furniture crop.
         guard visibleFraction >= 0.65, x1 - x0 >= 64, y1 - y0 >= 64 else { return nil }
-        let marginX = (x1 - x0) * 0.06, marginY = (y1 - y0) * 0.06
+        // A crop touching the image edge is usually a side view or a truncated
+        // object. Keep it as a fallback, but make a clean central frame win.
+        let edgeDistance = min(x0, y0, width - x1, height - y1) / min(width, height)
+        let edgePenalty = edgeDistance < 0.01 ? 0.12 : edgeDistance < 0.035 ? 0.55 : 1
+        let marginFactor = edgeDistance < 0.035 ? 0.015 : 0.035
+        let marginX = (x1 - x0) * marginFactor, marginY = (y1 - y0) * marginFactor
         let left = floor(max(0, x0 - marginX)), top = floor(max(0, y0 - marginY))
         let right = ceil(min(width, x1 + marginX)), bottom = ceil(min(height, y1 + marginY))
         let rectangle = PixelRectangle(x: left, y: top, width: right - left, height: bottom - top)
@@ -85,6 +92,16 @@ enum BoxProjection {
         let sharpnessWeight = min(1.5, max(0.2, frame.sharpness / 8))
         return ProjectedBox(rectangle: rectangle, visibleFraction: visibleFraction,
                             centerDistance: distance,
-                            score: visibleFraction * sqrt(areaRatio) * centrality * sharpnessWeight)
+                            score: visibleFraction * sqrt(areaRatio) * centrality * sharpnessWeight * edgePenalty,
+                            edgeDistance: edgeDistance)
+    }
+
+    static func intersectionRatio(_ first: PixelRectangle, _ second: PixelRectangle) -> Double {
+        let left = max(first.x, second.x)
+        let top = max(first.y, second.y)
+        let right = min(first.x + first.width, second.x + second.width)
+        let bottom = min(first.y + first.height, second.y + second.height)
+        guard right > left, bottom > top, first.area > 0 else { return 0 }
+        return ((right - left) * (bottom - top)) / first.area
     }
 }

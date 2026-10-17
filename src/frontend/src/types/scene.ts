@@ -30,7 +30,7 @@ export interface FurnitureItem extends SceneCollider {
 
 export interface RoomSurface extends SceneCollider {
   id: string
-  kind: 'wall' | 'floor'
+  kind: 'wall' | 'floor' | 'ceiling'
   polygonCorners?: Vec3[]
 }
 

@@ -20,6 +20,20 @@ function Floor({ surface }: { surface: RoomSurface }) {
   </mesh>
 }
 
+function Ceiling({ surface, edit }: { surface: RoomSurface; edit: boolean }) {
+  const shape = useMemo(() => {
+    const result = new Shape()
+    const corners = surface.polygonCorners ?? []
+    corners.forEach(([x, y], index) => index ? result.lineTo(x, y) : result.moveTo(x, y))
+    result.closePath()
+    return result
+  }, [surface.polygonCorners])
+  return <mesh name="scan-ceiling" position={surface.position} quaternion={surface.rotation} receiveShadow={!edit}>
+    <shapeGeometry args={[shape]} />
+    <meshStandardMaterial color="#d6d9d5" roughness={0.94} side={DoubleSide} transparent opacity={edit ? 0.16 : 0.94} />
+  </mesh>
+}
+
 export function ScannedRoom() {
   const scan = useRoomCanvasStore((state) => state.scan)
   const edit = useRoomCanvasStore((state) => state.mode === 'edit')
@@ -55,6 +69,7 @@ export function ScannedRoom() {
   if (!scan) return null
   return <group name="scanned-room">
     {scan.room.surfaces.filter((surface) => surface.kind === 'floor').map((surface) => <Floor key={surface.id} surface={surface} />)}
+    {scan.room.surfaces.filter((surface) => surface.kind === 'ceiling').map((surface) => <Ceiling key={surface.id} surface={surface} edit={edit} />)}
     {visuals.walls.map(({ surface, material }) =>
       <mesh key={surface.id} name="scan-wall" visible={!edit} material={material} position={surface.position} quaternion={surface.rotation} receiveShadow castShadow>
         <boxGeometry args={surface.size} />

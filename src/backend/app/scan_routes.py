@@ -56,8 +56,22 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
         # Stable ID makes repeated imports reuse the same generated models.
         scene_id = uuid.uuid5(uuid.NAMESPACE_URL, str(bundle.resolve())).hex
         if scene_path(scene_id).is_file():
+            existing = load(scene_id)
+            # Re-adapt once when the scanner contract gains derived geometry
+            # such as the synthesized ceiling. Preserve every paid model job.
+            if not any(surface.get("kind") == "ceiling" for surface in existing["room"].get("surfaces", [])):
+                destination = scene_path(scene_id).parent / "bundle"
+                rebuilt = save_scene(destination, scene_id)
+                old_by_id = {item["id"]: item for item in existing["furniture"]}
+                for item in rebuilt["furniture"]:
+                    old = old_by_id.get(item["id"])
+                    if old:
+                        for key in ("jobId", "generationStatus", "modelUrl", "editModelUrl", "stageMessage", "error"):
+                            if key in old: item[key] = old[key]
+                write_json(scene_path(scene_id), rebuilt)
+                existing = rebuilt
             write_json(scenes_root / "latest.json", {"id": scene_id})
-            return refresh(load(scene_id))
+            return refresh(existing)
         destination = scenes_root / scene_id / "bundle"
         destination.mkdir(parents=True, exist_ok=True)
         for name in ("manifest.json", "scene.json", "cameras.json"):
@@ -142,8 +156,9 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
         bundle = scene_path(scene["id"]).parent / "bundle" / scene.get("bundleSubdir", "")
         crop = safe_path(bundle, item["crops"][0]["imagePath"])
         width, height, depth = item["size"]
-        prompt = f"A single {item['category']}. Reconstruct only the central {item['category']}, excluding background, floor, walls, and neighboring furniture. Upright, Y-up."
-        job = start_generation(item["id"], item["name"], crop, "image/jpeg", width*1000, depth*1000, height*1000, prompt)
+        prompt = f"A single {item['category']}. Reconstruct only the target central {item['category']} inside the crop. Do not merge, duplicate, or reconstruct any neighboring or partially visible furniture, especially visually similar adjacent chairs. Exclude background, floor, walls, and neighboring furniture. Upright, Y-up."
+        content_type = "image/png" if crop.suffix.lower() == ".png" else "image/jpeg"
+        job = start_generation(item["id"], item["name"], crop, content_type, width*1000, depth*1000, height*1000, prompt)
         item.update(jobId=job.job_id, generationStatus=job.status)
 
     @app.post("/api/scenes/{scene_id}/reconstruct", status_code=202)

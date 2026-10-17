@@ -47,15 +47,9 @@ export const useSolarStore = create<SolarState>((set) => ({
   advanceSolar: (seconds) => set((state) => {
     if (state.animationMode === 'none' || !Number.isFinite(seconds) || seconds <= 0) return state
     const daysPerSecond = state.animationMode === 'day-night' ? 1 / 6 : daysInYear(state.year) / 40
-    let day = state.day
-    let minute = state.minute
-    if (state.animationMode === 'day-night') {
-      const elapsedMinutes = minute + seconds * daysPerSecond * 1440
-      day += Math.floor(elapsedMinutes / 1440)
-      minute = wrap(elapsedMinutes, 1440)
-    } else {
-      day += seconds * daysPerSecond
-    }
+    const dayAdvance = seconds * daysPerSecond
+    let day = state.day + dayAdvance
+    const minute = wrap(state.minute + dayAdvance * 1440, 1440)
     let year = state.year
     let days = daysInYear(year)
     while (day >= days) { day -= days; year += 1; days = daysInYear(year) }

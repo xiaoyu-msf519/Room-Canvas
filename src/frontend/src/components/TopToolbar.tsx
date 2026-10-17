@@ -26,6 +26,7 @@ export function TopToolbar({ onToast }: TopToolbarProps) {
             <small>SPATIAL EDITOR / 01</small>
           </div>
         </div>
+        {!playMode && <SolarControls showMacro={false} />}
       </div>
 
       <div className="mode-switcher" aria-live="polite">
@@ -43,7 +44,7 @@ export function TopToolbar({ onToast }: TopToolbarProps) {
       </div>
 
       <div className="toolbar-section toolbar-actions">
-        {!playMode && <SolarControls />}
+        {!playMode && <SolarControls showTime={false} />}
         <button className="save-button" type="button" onClick={() => onToast('场景状态已保存到本地草稿')}>
           <Save size={15} />
           <span>保存场景</span>

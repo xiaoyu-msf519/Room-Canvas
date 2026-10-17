@@ -28,8 +28,8 @@ function Ceiling({ surface, edit }: { surface: RoomSurface; edit: boolean }) {
     result.closePath()
     return result
   }, [surface.polygonCorners])
-  return <mesh name="scan-ceiling" position={surface.position} quaternion={surface.rotation} receiveShadow={!edit}>
-    <shapeGeometry args={[shape]} />
+  return <mesh name="scan-ceiling" position={surface.position} quaternion={surface.rotation} receiveShadow={!edit} castShadow>
+    <extrudeGeometry args={[shape, { depth: 0.08, bevelEnabled: false }]} />
     <meshStandardMaterial color="#d6d9d5" roughness={0.94} side={DoubleSide} transparent opacity={edit ? 0.16 : 0.94} />
   </mesh>
 }

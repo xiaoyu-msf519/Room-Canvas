@@ -69,9 +69,10 @@ export function Lighting() {
     sun.current.position.copy(rig.current).multiplyScalar(radius * 3).add(center)
     sun.current.intensity = sunlight * 4
     sun.current.color.copy(rig.warmSun).lerp(rig.whiteSun, Math.min(1, Math.max(0, rig.current.y) / 0.45))
-    ambient.current.intensity = 0.065 + sky * 0.45
-    hemisphere.current.intensity = 0.07 + sky * 0.58
-    moon.current.intensity = (1 - sky) * 0.18
+    // Keep a readable interior base while the ceiling blocks direct sunlight.
+    ambient.current.intensity = 0.16 + sky * 0.46
+    hemisphere.current.intensity = 0.13 + sky * 0.58
+    moon.current.intensity = (1 - sky) * 0.24
     rig.background.copy(rig.night).lerp(rig.day, sky)
     const twilight = (1 - Math.min(1, Math.abs(rig.current.y) / 0.14)) * sky * 0.4
     rig.background.lerp(rig.dusk, twilight)

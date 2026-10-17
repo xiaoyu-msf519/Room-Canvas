@@ -240,6 +240,7 @@ kbd { color: #6b7d85; font: 9px 'DM Mono', monospace; }
 .solar-icon-button { width: 30px; padding: 0; }
 .solar-icon-button.is-active { color: #f4c884; background: rgba(231,177,99,.08); border-color: rgba(239,187,120,.3); }
 .solar-macro-switches { display: flex; gap: 3px; flex-shrink: 0; }
+.solar-macro-only { justify-content: flex-end; }
 .solar-macro-button { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 7px; border: 1px solid var(--line); border-radius: 3px; background: rgba(255,255,255,.025); color: #9db2b9; font-size: 9px; cursor: pointer; }
 .solar-macro-button.is-active { color: #ffe0a7; border-color: rgba(239,187,120,.45); background: rgba(231,177,99,.13); }
 .solar-macro-button:hover { border-color: var(--line-bright); color: #edf7f9; }

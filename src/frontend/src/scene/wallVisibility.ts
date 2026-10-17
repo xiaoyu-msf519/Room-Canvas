@@ -149,19 +149,11 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
   let lastEdit: boolean | undefined
   let lastFurniture: SceneCollider[] | undefined
   let furnitureTargets: Vector3[] = []
-  const applyOpacity = (wall: typeof walls[number], opacity: number) => {
-    const transparent = opacity < 1
-    if (wall.material.transparent !== transparent) {
-      wall.material.transparent = transparent
-      wall.material.needsUpdate = true
-    }
-    wall.material.opacity = opacity
-    wall.material.depthWrite = !transparent
-  }
   return {
     walls,
     update(camera: Vector3, edit: boolean, furniture: SceneCollider[] = NO_FURNITURE) {
       if (camera.equals(lastCamera) && edit === lastEdit && furniture === lastFurniture) return
+      const modeChanged = edit !== lastEdit
       if (furniture !== lastFurniture) furnitureTargets = createFurnitureTargets(furniture, floor)
       lastCamera.copy(camera)
       lastEdit = edit
@@ -169,6 +161,12 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
       const cameraInside = edit && isInsideFloor(camera, floor)
       const checkOcclusion = edit && (!cameraInside || camera.y > ceiling + 0.05)
       for (const wall of walls) {
+        if (modeChanged) {
+          // Keep Edit's render queue, shader and depth behavior stable even at opacity 1.
+          wall.material.transparent = edit
+          wall.material.depthWrite = !edit
+          wall.material.needsUpdate = true
+        }
         let opacity = wallOpacityAt(wall.facing, camera, edit, cameraInside)
         if (checkOcclusion && opacity > CUTAWAY_OPACITY && (
           furnitureTargets.some((target) => wall.occluder.blocks(camera, target)) ||
@@ -177,7 +175,7 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
         if (!edit) {
           // Play must be solid immediately, even if Edit was mid-transition.
           wall.fade = { from: 1, target: 1, elapsed: WALL_FADE_SECONDS }
-          applyOpacity(wall, 1)
+          wall.material.opacity = 1
         } else if (Math.abs(wall.fade.target - opacity) > 0.000001) {
           wall.fade = { from: wall.material.opacity, target: opacity, elapsed: 0 }
         }
@@ -191,7 +189,7 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
         const progress = wall.fade.elapsed / duration
         const opacity = progress >= 1 - 1e-8 ? wall.fade.target :
           wall.fade.from + (wall.fade.target - wall.fade.from) * Easing.Cubic.Out(progress)
-        applyOpacity(wall, opacity)
+        wall.material.opacity = opacity
       }
     },
     dispose() { walls.forEach((wall) => wall.material.dispose()) },

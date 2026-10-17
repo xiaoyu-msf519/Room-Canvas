@@ -55,7 +55,7 @@ try {
   assert.equal(fadingNorth.opacity, CUTAWAY_OPACITY, 'Fade-in jumped on start')
   visuals.advance(0.25)
   assert.ok(fadingNorth.opacity > CUTAWAY_OPACITY && fadingNorth.opacity < 1)
-  assert.equal(fadingNorth.depthWrite, false, 'Wall started writing depth before becoming fully opaque')
+  assert.equal(fadingNorth.depthWrite, false, 'Edit wall changed its depth behavior during the fade')
   const interrupted = fadingNorth.opacity
   visuals.update(northCamera, true)
   assert.equal(fadingNorth.opacity, interrupted, 'Reversing the camera restarted the opacity from an endpoint')
@@ -66,8 +66,8 @@ try {
   visuals.update(southCamera, true)
   visuals.advance(WALL_FADE_SECONDS)
   assert.equal(fadingNorth.opacity, 1)
-  assert.equal(fadingNorth.transparent, false)
-  assert.equal(fadingNorth.depthWrite, true)
+  assert.equal(fadingNorth.transparent, true, 'Fade endpoint moved the Edit wall into the opaque render queue')
+  assert.equal(fadingNorth.depthWrite, false, 'Fade endpoint changed Edit wall depth writes')
   visuals.update(northCamera, true)
   visuals.advance(0.1)
   visuals.update(northCamera, false)
@@ -82,11 +82,29 @@ try {
   for (const fps of [30, 60, 120]) {
     const sample = createWallVisuals(surfaces)
     sample.update(northCamera, true)
-    for (let frame = 0; frame < fps / 2; frame++) {
-      sample.update(northCamera, true)
-      sample.advance(1 / fps)
+    const versions = sample.walls.map((wall) => wall.material.version)
+    const assertStablePipeline = (frame) => {
+      sample.walls.forEach(({ material }, index) => {
+        assert.equal(material.transparent, true, `Edit render queue changed at ${fps}fps, frame ${frame}`)
+        assert.equal(material.depthWrite, false, `Edit depth writes changed at ${fps}fps, frame ${frame}`)
+        assert.equal(material.version, versions[index], `Fade invalidated the material shader at ${fps}fps, frame ${frame}`)
+      })
     }
-    assert.equal(sample.walls[0].material.opacity, CUTAWAY_OPACITY, `Fade duration depends on frame rate: ${fps}fps`)
+    assertStablePipeline('initial')
+    for (const [camera, target] of [[northCamera, CUTAWAY_OPACITY], [southCamera, 1], [northCamera, CUTAWAY_OPACITY], [southCamera, 1]]) {
+      sample.update(camera, true)
+      let previous = sample.walls[0].material.opacity
+      // Include the frame before completion, completion, and settled frames.
+      for (let frame = 0; frame < fps / 2 + 3; frame++) {
+        sample.update(camera, true)
+        sample.advance(1 / fps)
+        assertStablePipeline(frame)
+        const opacity = sample.walls[0].material.opacity
+        assert.ok(Math.abs(opacity - previous) <= (1 - CUTAWAY_OPACITY) * 3 / (fps * WALL_FADE_SECONDS) + 1e-8, 'Opacity jumped between animation frames')
+        previous = opacity
+        if (frame === fps / 2 - 1) assert.equal(opacity, target, `Fade duration depends on frame rate: ${fps}fps`)
+      }
+    }
     sample.dispose()
   }
   for (const [position, fadedIds] of [
@@ -99,8 +117,8 @@ try {
     const faded = visuals.walls.filter((wall) => wall.material.opacity < 1).map((wall) => wall.surface.id)
     assert.deepEqual(faded.sort(), [...fadedIds].sort(), `Wrong wall cutaway from ${position}`)
     for (const wall of visuals.walls) {
-      assert.equal(wall.material.transparent, fadedIds.includes(wall.surface.id))
-      assert.equal(wall.material.depthWrite, !fadedIds.includes(wall.surface.id))
+      assert.equal(wall.material.transparent, true)
+      assert.equal(wall.material.depthWrite, false)
     }
     visuals.update(new Vector3(...position), false)
     assert.ok(visuals.walls.every((wall) => wall.material.opacity === 1 && !wall.material.transparent && wall.material.depthWrite), 'Play wall is not opaque')
@@ -199,7 +217,7 @@ try {
   await renderer.advanceFrames(32, 1 / 60)
   assert.equal(walls()[1].instance.material.opacity, CUTAWAY_OPACITY)
   assert.equal(walls()[3].instance.material.opacity, 1)
-  console.log(`PASS: 0.5s fades at 30/60/120fps, interruption, stationary camera, reduced motion, immediate Play opacity, S-boundary occlusion, material reuse; actual scan: ${counts.join('; ')}`)
+  console.log(`PASS: stable Edit render queue/depth/shader through fade endpoints, repeated 0.5s fades at 30/60/120fps, interruption, stationary camera, reduced motion, immediate Play opacity, S-boundary occlusion, material reuse; actual scan: ${counts.join('; ')}`)
 } finally {
   if (renderer) await renderer.unmount()
   await vite.close()

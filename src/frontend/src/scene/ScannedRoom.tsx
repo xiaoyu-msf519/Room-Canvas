@@ -27,7 +27,7 @@ export function ScannedRoom() {
   const geometryKey = JSON.stringify(scan?.room.surfaces ?? [])
   const visuals = useMemo(() => createWallVisuals(JSON.parse(geometryKey)), [geometryKey])
   const cameraPosition = useMemo(() => new Vector3(), [])
-  const updateWalls = () => visuals.update(camera.getWorldPosition(cameraPosition), edit)
+  const updateWalls = () => visuals.update(camera.getWorldPosition(cameraPosition), edit, useRoomCanvasStore.getState().furnitureList)
   useFrame(updateWalls)
   useLayoutEffect(updateWalls, [edit, camera, visuals, cameraPosition])
   useEffect(() => () => visuals.dispose(), [visuals])

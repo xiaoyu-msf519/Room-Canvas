@@ -10,7 +10,7 @@ const { Quaternion, Vector3 } = createRequire(import.meta.url)('three')
 const vite = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true }, appType: 'custom' })
 let renderer
 try {
-  const { createWallFacing, createWallVisuals, isInsideFloor, wallOpacityAt, CUTAWAY_OPACITY } = await vite.ssrLoadModule('/src/scene/wallVisibility.ts')
+  const { createWallFacing, createWallOccluder, createWallVisuals, isInsideFloor, wallOpacityAt, CUTAWAY_OPACITY } = await vite.ssrLoadModule('/src/scene/wallVisibility.ts')
   const { createWalkFloor } = await vite.ssrLoadModule('/src/scene/navigation.ts')
   const { ScannedRoom } = await vite.ssrLoadModule('/src/scene/ScannedRoom.tsx')
   const { useRoomCanvasStore } = await vite.ssrLoadModule('/src/state/useRoomCanvasStore.ts')
@@ -64,6 +64,48 @@ try {
   const notchFacing = createWallFacing(notchWall, concaveFloor)
   assert.ok(notchFacing.resolved && notchFacing.inward.z < -0.99, 'Concave notch uses an incorrect interior normal')
 
+  // L room: a camera-to-room segment crosses three sides of the S-shaped
+  // boundary. Its middle wall faces the camera but still hides the other wing.
+  const sFloor = {
+    ...floor, size: [8, 6, 0.05],
+    polygonCorners: [[-4, -3], [4, -3], [4, -1], [-1, -1], [-1, 3], [-4, 3]].map(([x, z]) => [x, -z, 0]),
+  }
+  const sWalls = [
+    { ...north, id: 's-first', position: [-2.5, 2, 3], size: [3, 4, 0.1] },
+    { ...east, id: 's-middle', position: [-1, 2, 1], size: [4, 4, 0.1] },
+    { ...north, id: 's-last', position: [1.5, 2, -1], size: [5, 4, 0.1] },
+    { ...south, id: 's-back', position: [0, 2, -3], size: [8, 4, 0.1] },
+    { ...west, id: 's-left', position: [-4, 2, 0], size: [6, 4, 0.1] },
+    { ...east, id: 's-right', position: [4, 2, -2], size: [2, 4, 0.1] },
+  ]
+  const sCamera = new Vector3(-6, 5, 6)
+  const sTarget = new Vector3(3, 0.6, -2)
+  const sSurfaces = [sFloor, ...sWalls]
+  const sTriangles = createWalkFloor(sSurfaces)
+  const middleFacing = createWallFacing(sWalls[1], sTriangles)
+  assert.equal(wallOpacityAt(middleFacing, sCamera, true, false), 1, 'Fixture does not reproduce the normal-only failure')
+  for (const wall of sWalls.slice(0, 3)) {
+    assert.ok(createWallOccluder(wall).blocks(sCamera, sTarget), `${wall.id} did not intersect the finite room segment`)
+  }
+  const backOccluder = createWallOccluder(sWalls[3])
+  assert.equal(backOccluder.blocks(sCamera, sTarget), false, 'Segment extended beyond the interior target and faded the back wall')
+  const sVisuals = createWallVisuals(sSurfaces)
+  sVisuals.update(sCamera, true)
+  for (const wall of sVisuals.walls.slice(0, 3)) assert.equal(wall.material.opacity, CUTAWAY_OPACITY, `${wall.surface.id} remains opaque across the L-room corner`)
+  assert.equal(sVisuals.walls[3].material.opacity, 1, 'L-room rear boundary became transparent')
+  sVisuals.update(sCamera, false)
+  assert.ok(sVisuals.walls.every((wall) => wall.material.opacity === 1 && wall.material.depthWrite), 'L-room walls are not solid in Play')
+  sVisuals.dispose()
+
+  // Arbitrarily rotated OBBs and endpoint rules use the same finite-ray logic.
+  const fortyFive = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 4)
+  const rotatedPanel = { ...north, position: [1, 2, 1], size: [2, 4, 0.1], rotation: fortyFive.toArray() }
+  const rotatedOccluder = createWallOccluder(rotatedPanel)
+  const panelCenter = new Vector3(...rotatedPanel.position)
+  const panelNormal = new Vector3(0, 0, 1).applyQuaternion(fortyFive)
+  assert.ok(rotatedOccluder.blocks(panelCenter.clone().addScaledVector(panelNormal, 3), panelCenter.clone().addScaledVector(panelNormal, -3)))
+  assert.equal(rotatedOccluder.blocks(panelCenter.clone().addScaledVector(panelNormal, 3), panelCenter), false, 'Target inside the wall was incorrectly classified as occluded content')
+
   let camera
   function CameraProbe() { camera = useThree((state) => state.camera); return null }
   useRoomCanvasStore.getState().applyScan({ id: 'wall-test', room: { surfaces, colliders: [] }, furniture: [] })
@@ -99,7 +141,13 @@ try {
   }
   await act(async () => useRoomCanvasStore.getState().setMode('play'))
   assert.ok(walls().every((wall) => wall.instance.material.opacity === 1 && !wall.instance.material.transparent))
-  console.log(`PASS: Blueprint3D camera-side cutaway; opposing normals, orbit, interior camera, concave floor, depth writes, Play opacity, material reuse; actual scan: ${counts.join('; ')}`)
+  // Actual component with the synthetic S boundary must show the same extra fade.
+  await act(async () => useRoomCanvasStore.getState().applyScan({ id: 's-wall-test', room: { surfaces: sSurfaces, colliders: [] }, furniture: [] }))
+  camera.position.copy(sCamera)
+  await renderer.advanceFrames(2, 1 / 60)
+  assert.equal(walls()[1].instance.material.opacity, CUTAWAY_OPACITY)
+  assert.equal(walls()[3].instance.material.opacity, 1)
+  console.log(`PASS: three S-boundary occluders in an L room, finite segments, rotated OBBs, normal-only regression, orbit, Play opacity, material reuse; actual scan: ${counts.join('; ')}`)
 } finally {
   if (renderer) await renderer.unmount()
   await vite.close()

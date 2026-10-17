@@ -1,9 +1,10 @@
-import { MeshStandardMaterial, Quaternion, Vector3 } from 'three'
+import { Box3, Matrix4, MeshStandardMaterial, Quaternion, Ray, Vector3 } from 'three'
 import type { Triangle } from 'three'
-import type { RoomSurface } from '../types/scene'
+import type { RoomSurface, SceneCollider } from '../types/scene'
 import { createWalkFloor } from './navigation'
 
 export const CUTAWAY_OPACITY = 0.18
+const NO_FURNITURE: SceneCollider[] = []
 
 export interface WallFacing {
   center: Vector3
@@ -67,19 +68,99 @@ export function wallOpacityAt(facing: WallFacing, camera: Vector3, edit: boolean
   return CUTAWAY_OPACITY + (1 - CUTAWAY_OPACITY) * smooth
 }
 
+/** Ray/OBB intersection limited to the camera-to-target segment. */
+export function createWallOccluder(surface: RoomSurface) {
+  const inverse = new Matrix4().compose(new Vector3(...surface.position), new Quaternion(...surface.rotation), new Vector3(1, 1, 1)).invert()
+  const half = new Vector3(...surface.size).multiplyScalar(0.5)
+  const bounds = new Box3(half.clone().negate(), half)
+  const clearance = bounds.clone().expandByScalar(0.08)
+  const origin = new Vector3(), end = new Vector3(), direction = new Vector3(), hit = new Vector3()
+  const ray = new Ray()
+  return {
+    containsTarget(point: Vector3) { return clearance.containsPoint(end.copy(point).applyMatrix4(inverse)) },
+    blocks(camera: Vector3, target: Vector3) {
+      origin.copy(camera).applyMatrix4(inverse)
+      end.copy(target).applyMatrix4(inverse)
+      // An endpoint on/in the wall is not interior content hidden behind it.
+      if (clearance.containsPoint(end)) return false
+      direction.subVectors(end, origin)
+      const distance = direction.length()
+      if (distance < 0.1) return false
+      ray.set(origin, direction.divideScalar(distance))
+      return ray.intersectBox(bounds, hit) !== null && origin.distanceTo(hit) < distance - 0.08
+    },
+  }
+}
+
+function createInteriorTargets(surfaces: RoomSurface[], floor: Triangle[], occluders: ReturnType<typeof createWallOccluder>[]): Vector3[] {
+  const bounds = new Box3()
+  for (const triangle of floor) for (const point of [triangle.a, triangle.b, triangle.c]) bounds.expandByPoint(point)
+  if (bounds.isEmpty()) return []
+  const floorY = surfaces.find((surface) => surface.kind === 'floor')?.position[1] ?? 0
+  const size = bounds.getSize(new Vector3())
+  const spacing = Math.max(0.5, Math.sqrt(size.x * size.z / 256))
+  const targets: Vector3[] = []
+  const add = (x: number, z: number) => {
+    for (const height of [0.18, 1.2]) {
+      const target = new Vector3(x, floorY + height, z)
+      if (!occluders.some((wall) => wall.containsTarget(target))) targets.push(target)
+    }
+  }
+  // Triangle centroids cover narrow wings that can fall between the grid cells.
+  for (const triangle of floor) {
+    const center = triangle.getMidpoint(new Vector3())
+    add(center.x, center.z)
+  }
+  for (let x = bounds.min.x + spacing / 2; x < bounds.max.x; x += spacing) {
+    for (let z = bounds.min.z + spacing / 2; z < bounds.max.z; z += spacing) {
+      if (isInsideFloor(new Vector3(x, 0, z), floor)) add(x, z)
+    }
+  }
+  return targets
+}
+
+function createFurnitureTargets(furniture: SceneCollider[], floor: Triangle[]): Vector3[] {
+  const targets: Vector3[] = []
+  for (const item of furniture) {
+    const rotation = new Quaternion(...item.rotation)
+    for (const [x, y, z] of [[0, 0, 0], [-0.35, 0.3, -0.35], [0.35, 0.3, -0.35], [-0.35, 0.3, 0.35], [0.35, 0.3, 0.35]]) {
+      const point = new Vector3(x * item.size[0], y * item.size[1], z * item.size[2]).applyQuaternion(rotation).add(new Vector3(...item.position))
+      if (isInsideFloor(point, floor)) targets.push(point)
+    }
+  }
+  return targets
+}
+
 export function createWallVisuals(surfaces: RoomSurface[]) {
   const floor = createWalkFloor(surfaces)
   const walls = surfaces.filter((surface) => surface.kind === 'wall').map((surface) => ({
     surface,
     facing: createWallFacing(surface, floor),
+    occluder: createWallOccluder(surface),
     material: new MeshStandardMaterial({ color: '#d6dadb', roughness: 0.92 }),
   }))
+  const interiorTargets = createInteriorTargets(surfaces, floor, walls.map((wall) => wall.occluder))
+  const ceiling = Math.max(...walls.map(({ surface }) => surface.position[1] + surface.size[1] / 2))
+  const lastCamera = new Vector3(Infinity, Infinity, Infinity)
+  let lastEdit: boolean | undefined
+  let lastFurniture: SceneCollider[] | undefined
+  let furnitureTargets: Vector3[] = []
   return {
     walls,
-    update(camera: Vector3, edit: boolean) {
+    update(camera: Vector3, edit: boolean, furniture: SceneCollider[] = NO_FURNITURE) {
+      if (camera.equals(lastCamera) && edit === lastEdit && furniture === lastFurniture) return
+      if (furniture !== lastFurniture) furnitureTargets = createFurnitureTargets(furniture, floor)
+      lastCamera.copy(camera)
+      lastEdit = edit
+      lastFurniture = furniture
       const cameraInside = edit && isInsideFloor(camera, floor)
+      const checkOcclusion = edit && (!cameraInside || camera.y > ceiling + 0.05)
       for (const wall of walls) {
-        const opacity = wallOpacityAt(wall.facing, camera, edit, cameraInside)
+        let opacity = wallOpacityAt(wall.facing, camera, edit, cameraInside)
+        if (checkOcclusion && opacity > CUTAWAY_OPACITY && (
+          furnitureTargets.some((target) => wall.occluder.blocks(camera, target)) ||
+          interiorTargets.some((target) => wall.occluder.blocks(camera, target))
+        )) opacity = CUTAWAY_OPACITY
         const transparent = opacity < 0.999
         if (wall.material.transparent !== transparent) {
           wall.material.transparent = transparent

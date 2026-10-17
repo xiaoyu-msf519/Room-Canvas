@@ -63,6 +63,17 @@ try {
   const markup = renderToStaticMarkup(React.createElement(ScanPanel, { onToast() {} }))
   assert.ok(markup.includes('房间已建成') && markup.includes('北向待校准') && markup.includes('webkitdirectory'))
   assert.equal(markup.includes('继续家具重建'), false, 'Automatic import still requires a manual reconstruction click')
+  Object.assign(useRoomCanvasStore.getInitialState().scan, {
+    furniture: [
+      { id: 'one', name: 'chair', generationStatus: 'generating' },
+      { id: 'two', name: 'table', generationStatus: 'queued' },
+      { id: 'three', name: 'bed', generationStatus: 'needs_review', error: '家具截断过多，需要更完整视角' },
+    ],
+    pipeline: { autoReconstruct: true, status: 'processing', preparation: 'complete', stageMessage: '生成中 1 件 · 排队 1 件；另 1 件待补拍', completed: 0, total: 3 },
+  })
+  const progressMarkup = renderToStaticMarkup(React.createElement(ScanPanel, { onToast() {} }))
+  assert.ok(progressMarkup.includes('生成中 1') && progressMarkup.includes('排队 1') && progressMarkup.includes('待补拍 1'), 'Active and blocked furniture counts are not visible')
+  assert.ok(progressMarkup.includes('查看待补拍原因') && progressMarkup.includes('家具截断过多，需要更完整视角') && progressMarkup.includes('<details'), 'Blocked reasons only exist in a hover title')
   console.log('PASS: arbitrary folder selection, required-file and portable-cache upload, input validation, upload progress/errors, automatic scene progress UI; no browser/network/paid calls')
 } finally {
   await vite.close()

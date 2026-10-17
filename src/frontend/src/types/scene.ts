@@ -25,6 +25,7 @@ export interface FurnitureItem extends SceneCollider {
   stageMessage?: string
   error?: string | null
   reviewRequired?: boolean
+  qualityWarning?: string | null
   originalBounds?: SceneCollider
 }
 
@@ -55,6 +56,10 @@ export interface SceneManifest {
     total: number
     failed: number
     needsReview: number
+    preparing?: number
+    queued?: number
+    generating?: number
+    scaling?: number
   }
   finishRecovery?: { method: 'rgbd-uniform-v1'; status: 'complete' | 'unavailable'; recoveredSurfaces: number }
   id: string

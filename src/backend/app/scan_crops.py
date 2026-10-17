@@ -11,6 +11,8 @@ from PIL import Image, ImageChops, ImageFilter
 
 from .scans import matrix, read_json, safe_path
 
+CROP_POLICY = "best-effort-v2"
+
 
 class CropNeedsReview(ValueError):
     pass
@@ -21,7 +23,20 @@ def _box_rectangle(obj: dict, camera: dict) -> np.ndarray | None:
     corners = np.array([[x, y, z, 1] for x in (-half[0], half[0]) for y in (-half[1], half[1]) for z in (-half[2], half[2])])
     local = corners @ (np.linalg.inv(matrix(camera["cameraToWorld"])) @ matrix(obj["objectToWorld"])).T
     if np.any(local[:, 2] >= -0.05):
-        return None
+        # Clip the box's edges at the camera near plane instead of rejecting
+        # large/near furniture whose eight corners are not all in front.
+        clipped = [point for point in local if point[2] < -0.05]
+        for first in range(8):
+            for bit in (1, 2, 4):
+                second = first ^ bit
+                if second <= first:
+                    continue
+                a, b = local[first], local[second]
+                if (a[2] < -0.05) != (b[2] < -0.05):
+                    clipped.append(a + ((-0.05 - a[2]) / (b[2] - a[2])) * (b - a))
+        if not clipped:
+            return None
+        local = np.asarray(clipped)
     pixels = local[:, :3] * [1, -1, -1] @ np.asarray(camera["intrinsics"]).reshape(3, 3, order="F").T
     pixels /= pixels[:, 2:3]
     pixels = pixels @ np.asarray(camera["nativePixelToSavedPixel"]).reshape(3, 3, order="F").T
@@ -86,6 +101,44 @@ def _depth_mask(bundle: Path, obj: dict, objects: list[dict], surfaces: list[dic
     return Image.fromarray((valid * 255).astype(np.uint8)), saved_to_depth
 
 
+def _best_effort_image(bundle: Path, obj: dict, cameras: dict, candidates: dict, rank) -> tuple[Image.Image, dict]:
+    # Quality gates choose the preferred image, but cannot prevent generation.
+    # Keep the unmasked crop when a depth mask would erase too much furniture.
+    for crop in sorted(candidates.values(), key=rank, reverse=True):
+        try:
+            with Image.open(safe_path(bundle, crop["imagePath"])) as original:
+                if crop.get("fromFrame"):
+                    x, y, width, height = crop["rectanglePixels"]
+                    original = original.crop((int(x), int(y), int(x + width), int(y + height)))
+                if min(original.size) < 2:
+                    continue
+                image = original.convert("RGBA")
+                if image.getchannel("A").getbbox() is None:
+                    continue
+                image.thumbnail((1024, 1024))
+            return image, {"frameId": crop.get("frameId"), "method": "original-crop-fallback" if not crop.get("fromFrame") else "projected-frame-fallback",
+                           "sourceImagePath": crop["imagePath"], "fallback": True, "qualityWarning": "采用可用原图尽力重建，可能存在遮挡、截断或相邻家具"}
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    # When no usable target crop exists, use the nearest available keyframe.
+    center = matrix(obj["objectToWorld"])[:3, 3]
+    def distance(camera):
+        try:
+            return float(np.linalg.norm(matrix(camera["cameraToWorld"])[:3, 3] - center))
+        except (ValueError, KeyError):
+            return float("inf")
+    for camera in sorted(cameras.values(), key=distance):
+        try:
+            with Image.open(safe_path(bundle, camera["imagePath"])) as original:
+                image = original.convert("RGBA")
+                image.thumbnail((1024, 1024))
+            return image, {"frameId": camera["id"], "method": "keyframe-fallback", "sourceImagePath": camera["imagePath"], "fallback": True,
+                           "qualityWarning": "没有可用单件裁剪，使用邻近关键帧尽力重建；外形可能不准确"}
+        except (OSError, ValueError, KeyError):
+            continue
+    raise CropNeedsReview("采集包没有可读取的家具图或关键帧，无法调用图生 3D")
+
+
 def prepare_furniture_crop(bundle: Path, furniture_id: str, output: Path) -> dict:
     source = read_json(bundle / "scene.json")
     obj = next(obj for obj in source["objects"] if obj["id"] == furniture_id)
@@ -104,7 +157,7 @@ def prepare_furniture_crop(bundle: Path, furniture_id: str, output: Path) -> dic
             end = np.minimum(rectangle[2:], [camera["imageWidth"], camera["imageHeight"]])
             size = end - start
             visible = np.prod(np.maximum(size, 0)) / max(1, np.prod(rectangle[2:] - rectangle[:2]))
-            if visible < 0.9 or min(size) < 64:
+            if visible <= 0 or min(size) < 4:
                 continue
             start, end = np.floor(start), np.ceil(end)
             candidates[camera["id"]] = {"frameId": camera["id"], "imagePath": camera["imagePath"], "rectanglePixels": [*start.tolist(), *(end - start).tolist()], "visibleFraction": float(visible), "fromFrame": True}
@@ -115,11 +168,10 @@ def prepare_furniture_crop(bundle: Path, furniture_id: str, output: Path) -> dic
             camera = cameras[crop["frameId"]]
             overlap = _neighbor_overlap(obj, source["objects"], camera)
             area = np.prod(crop["rectanglePixels"][2:]) / max(1, camera["imageWidth"] * camera["imageHeight"])
-            return float(crop.get("visibleFraction", 0)) * math.sqrt(area) * max(0, 1 - overlap * 2)
+            return float(crop.get("visibleFraction", 0)) * math.sqrt(area) * max(0.05, 1 - overlap * 1.5)
         except (ValueError, KeyError, TypeError):
             return 0
     choices = []
-    reasons = []
     for crop in sorted(candidates.values(), key=rank, reverse=True)[:12]:
         try:
             camera = cameras[crop["frameId"]]
@@ -181,13 +233,14 @@ def prepare_furniture_crop(bundle: Path, furniture_id: str, output: Path) -> dic
                 method = "isolated-calibrated-crop"
                 quality = visible * (1 - overlap) * 0.5
             choices.append((quality, image, {"frameId": camera["id"], "method": method, "maskCoverage": round(coverage, 4), "sourceImagePath": crop["imagePath"]}))
-        except (OSError, ValueError, KeyError, TypeError, np.linalg.LinAlgError) as error:
-            reasons.append(f"{crop.get('frameId', '?')}: {error}")
+        except (OSError, ValueError, KeyError, TypeError, np.linalg.LinAlgError):
+            continue
     if not choices:
-        raise CropNeedsReview("无可靠单件视角，请补拍或更换采集包。" + "；".join(reasons[:3]))
-    _, image, selection = max(choices, key=lambda choice: choice[0])
+        image, selection = _best_effort_image(bundle, obj, cameras, candidates, rank)
+    else:
+        _, image, selection = max(choices, key=lambda choice: choice[0])
     output.mkdir(parents=True, exist_ok=True)
     filename = hashlib.sha256(furniture_id.encode()).hexdigest()[:24] + ".png"
     path = output / filename
     image.save(path)
-    return {**selection, "imagePath": path.relative_to(bundle).as_posix()}
+    return {**selection, "policy": CROP_POLICY, "imagePath": path.relative_to(bundle).as_posix()}

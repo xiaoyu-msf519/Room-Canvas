@@ -48,6 +48,10 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--cyan); outl
 .scan-room-select { width: 100%; min-width: 0; margin-top: 9px; height: 30px; color: #c4d5d9; background: #263035; border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; font-size: 11px; }
 .scan-cache-download { width: 100%; margin-top: 8px; }
 .scan-cache-warning { margin-top: 7px; font-size: 11px; line-height: 1.5; color: #e5b980; }
+.scan-task-summary { margin-top: 7px; font-size: 11px; line-height: 1.6; color: #b8cdd2; overflow-wrap: anywhere; }
+.scan-task-error { margin: 4px 0 6px; font-size: 10px; line-height: 1.6; color: #e5b980; }
+.scan-task-error summary { cursor: pointer; }
+.scan-task-error p { margin: 4px 0; overflow-wrap: anywhere; color: #acb8bd; }
 .scan-furniture-list { display: grid; gap: 6px; margin-top: 10px; }
 .scan-furniture-row { display: flex; gap: 4px; }
 .scan-panel .scan-object { flex: 1; justify-content: flex-start; text-align: left; min-width: 0; padding: 4px; }

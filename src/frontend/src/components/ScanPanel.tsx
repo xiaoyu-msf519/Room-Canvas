@@ -52,6 +52,16 @@ export function ScanPanel({ onToast }: { onToast: (message: string) => void }) {
   const complete = scan?.furniture.filter((item) => item.generationStatus === 'succeeded').length ?? 0
   const active = scan?.pipeline?.status === 'processing' || scan?.furniture.some((item) => ['preparing', 'queued', 'generating', 'scaling'].includes(item.generationStatus ?? ''))
   const retryable = scan?.furniture.some((item) => item.generationStatus === 'failed') || scan?.pipeline?.preparation === 'failed'
+  const counts = scan?.furniture.reduce((result, item) => {
+    const status = item.generationStatus ?? 'pending'
+    result[status] = (result[status] ?? 0) + 1
+    return result
+  }, {} as Record<string, number>) ?? {}
+  const progressSummary = [
+    [counts.succeeded, '已完成'], [(counts.generating ?? 0) + (counts.uploading ?? 0), '生成中'],
+    [counts.scaling, '缩放与低模'], [counts.queued, '排队'], [counts.preparing, '检查图片'],
+    [counts.needs_review, '待补拍'], [counts.failed, '失败'],
+  ].filter(([count]) => count).map(([count, label]) => `${label} ${count}`).join(' · ')
 
   return <aside className="scan-panel glass-panel">
     <div className="scan-header"><ScanLine size={15} /><strong>扫描房间</strong><span>{scan ? `${complete} / ${scan.furniture.length}` : '未导入'}</span></div>
@@ -70,17 +80,24 @@ export function ScanPanel({ onToast }: { onToast: (message: string) => void }) {
     {scan && <>
       <div className="scan-title" title={scan.title}>{scan.title}</div>
       {scan.pipeline && <div className="scan-pipeline" role="status"><span>{scan.pipeline.stageMessage}</span><progress max={Math.max(1, scan.pipeline.total)} value={scan.pipeline.completed} /></div>}
+      {progressSummary && <div className="scan-task-summary" role="status">{progressSummary}</div>}
       <div className="scan-orientation">{scan.source.orientation?.reference === 'true-north' ? `北向 ${scan.source.orientation.northAngleDegrees?.toFixed(1)}°` : '北向待校准'}{scan.pipeline?.needsReview ? ` · ${scan.pipeline.needsReview} 件待补拍` : ''}</div>
       {scan.cache?.warning && <div className="scan-cache-warning" role="status">{scan.cache.warning}</div>}
       <button className="scan-cache-download" type="button" title="下载可随扫描目录迁移的模型缓存" onClick={() => window.location.assign(`/api/scenes/${scan.id}/cache`)}><Download size={13} />导出房间缓存</button>
       {(!scan.pipeline?.autoReconstruct || retryable) && <button className="scan-reconstruct" type="button" disabled={busy || active} onClick={() => void request(`/api/scenes/${scan.id}/reconstruct`)}><WandSparkles size={14} />{retryable ? '重试失败任务' : complete === scan.furniture.length ? '重建完成' : '继续家具重建'}</button>}
       <div className="scan-furniture-list">
-        {scan.furniture.map((item) => <div className="scan-furniture-row" key={item.id}>
+        {scan.furniture.map((item) => <div key={item.id}><div className="scan-furniture-row">
           <button className="scan-object" type="button" onClick={() => setSelectedId(item.id)}>
             {item.cropUrl && <img src={item.cropUrl} alt={item.name} />}
             <span><strong>{item.name}</strong><small title={item.error ?? item.stageMessage}>{item.generationStatus === 'succeeded' ? '已原位回填' : item.generationStatus === 'needs_review' ? '需补拍独立视角' : item.generationStatus === 'failed' ? '重建失败' : item.stageMessage ?? '等待自动处理'}</small></span>
           </button>
           {item.generationStatus === 'failed' && <button type="button" title="重试此家具" onClick={() => void request(`/api/scenes/${scan.id}/furniture/${item.id}/reconstruct`)}><RefreshCw size={13} /></button>}
+        </div>
+          {(item.generationStatus === 'needs_review' || item.generationStatus === 'failed') && item.error && <details className="scan-task-error">
+            <summary>{item.generationStatus === 'needs_review' ? '查看待补拍原因' : '查看失败原因'}</summary>
+            <p>{item.error}</p>
+          </details>}
+          {item.qualityWarning && <details className="scan-task-error"><summary>已采用备用图片</summary><p>{item.qualityWarning}</p></details>}
         </div>)}
       </div>
     </>}

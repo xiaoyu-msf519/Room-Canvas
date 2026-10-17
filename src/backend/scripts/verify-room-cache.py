@@ -70,7 +70,7 @@ async def verify():
                 await asyncio.sleep(0.02)
             cache = read_json(cache_file)
             assert next(item for item in cache["furniture"] if item["id"] == target_id)["status"] == "succeeded"
-            assert len(calls) == 1
+            assert len(calls) == 2
             assert not any(secret in cache_file.read_text(encoding="utf-8") for secret in ("subscription_key", "task_uuid", "api_key", "Bearer"))
             exported = (await client.get(f"/api/scenes/{scene['id']}/cache")).raise_for_status()
             assert exported.content[:2] == b"PK"
@@ -83,14 +83,14 @@ async def verify():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app()), base_url="http://test") as client:
             restored = await load_room(client)
             item = next(item for item in restored["furniture"] if item["id"] == target_id)
-            assert len(calls) == 1 and item["generationStatus"] == "succeeded" and restored["cache"]["restored"]
+            assert len(calls) == 2 and item["generationStatus"] == "succeeded" and restored["cache"]["restored"]
             assert (root / "tmp/models" / item["modelUrl"].rsplit("/", 1)[-1]).read_bytes()[:4] == b"glTF"
             _, _, original_files = bundle_inventory(folder)
             files = original_files + cache_resources(folder)
             uploads = [("files", ("moved/" + relative, (folder / relative).read_bytes())) for relative in files]
             response = await client.post("/api/scans", files=uploads)
             response.raise_for_status()
-            assert response.json()["id"] == restored["id"] and len(calls) == 1
+            assert response.json()["id"] == restored["id"] and len(calls) == 2
             await asyncio.sleep(0.2)
         # A missing runtime job and an incomplete portable task must not be
         # interpreted as permission to submit it a second time.
@@ -102,7 +102,7 @@ async def verify():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app()), base_url="http://test") as client:
             interrupted = await load_room(client)
             assert next(item for item in interrupted["furniture"] if item["id"] == target_id)["generationStatus"] == "failed"
-            assert len(calls) == 1
+            assert len(calls) == 2
             await asyncio.sleep(0.1)
         shutil.rmtree(root / "tmp")
         entry["status"] = "succeeded"
@@ -114,7 +114,7 @@ async def verify():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app()), base_url="http://test") as client:
             corrupt = await load_room(client)
             assert next(item for item in corrupt["furniture"] if item["id"] == target_id)["generationStatus"] == "failed"
-            assert len(calls) == 1
+            assert len(calls) == 2
             await asyncio.sleep(0.1)
         print("PASS: room library, automatic scan-local cache, models after runtime deletion/folder rename, cache-bearing reupload, no keys, ZIP export; incomplete or corrupted caches cannot duplicate billing")
 

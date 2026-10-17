@@ -13,7 +13,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .scan_crops import prepare_furniture_crop, CropNeedsReview
+from .scan_crops import CROP_POLICY, prepare_furniture_crop, CropNeedsReview
 from .scan_import import MAX_BUNDLE_BYTES, bundle_inventory, find_bundle
 from .scan_cache import CACHE_FOLDER, MAX_CACHE_BYTES, cache_index, cache_resources, restore_cache, save_cache
 from .scans import adapt_scan, read_json, safe_path, write_json
@@ -66,7 +66,11 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
         if pipeline:
             states = [item.get("generationStatus", "pending") for item in scene["furniture"]]
             complete, failed, review = (states.count(status) for status in ("succeeded", "failed", "needs_review"))
-            active = sum(states.count(status) for status in ("preparing", "queued", "generating", "scaling", "uploading"))
+            preparing = states.count("preparing")
+            queued = states.count("queued")
+            generating = states.count("generating") + states.count("uploading")
+            scaling = states.count("scaling")
+            active = preparing + queued + generating + scaling
             status, message = "processing", "正在生成家具并按真实尺度回填"
             if pipeline.get("preparation") in ("pending", "running"):
                 message = "正在恢复涂装并检查单件家具视角"
@@ -74,9 +78,19 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                 status, message = "needs_attention", pipeline.get("error", "预处理未完成")
             elif complete == len(states):
                 status, message = "ready", "房间已建成"
+            elif active:
+                stages = [(preparing, "检查图片"), (generating, "生成中"), (scaling, "缩放与低模处理"), (queued, "排队")]
+                message = " · ".join(f"{label} {count} 件" for count, label in stages if count)
+                if review:
+                    message += f"；另 {review} 件待补拍"
             elif not active:
-                status, message = ("needs_attention", "部分家具需要补拍或重试") if failed or review else ("idle", "房间已导入，家具尚未生成")
-            pipeline.update(status=status, stageMessage=message, completed=complete, failed=failed, needsReview=review, total=len(states))
+                if failed or review:
+                    status = "needs_attention"
+                    message = "自动处理已结束；" + " · ".join(f"{count} 件{label}" for count, label in ((complete, "完成"), (review, "待补拍"), (failed, "失败")) if count)
+                else:
+                    status, message = "idle", "房间已导入，家具尚未生成"
+            pipeline.update(status=status, stageMessage=message, completed=complete, failed=failed, needsReview=review,
+                            preparing=preparing, queued=queued, generating=generating, scaling=scaling, total=len(states))
         return scene
 
     async def snapshot_targets(scene: dict) -> None:
@@ -132,7 +146,7 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                         continue
                     if current and (current.status != "failed" or not retry):
                         continue
-                    if item.get("generationStatus") in ("failed", "needs_review") and not retry:
+                    if item.get("generationStatus") == "failed" and not retry:
                         continue
                     if retry:
                         item["generationRevision"] = item.get("generationRevision", 0) + 1
@@ -143,9 +157,10 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                         item["cropSelection"] = selection
                         item["cropUrl"] = f"/api/scenes/{scene_id}/files/{selection['imagePath']}"
                         item["reviewRequired"] = False
+                        item["qualityWarning"] = selection.get("qualityWarning")
                         crop = safe_path(bundle, selection["imagePath"])
                         width, height, depth = item["size"]
-                        prompt = f"One single {item['category']}, upright Y-up. Reconstruct only this object, including its own legs and supports. No adjacent furniture, duplicates, floor, walls or background."
+                        prompt = f"One single {item['category']}, upright Y-up. Reconstruct only the target central {item['category']}, including its own legs and supports. Infer plausible missing or occluded parts. No adjacent furniture, duplicates, floor, walls or background."
                         # Persist an in-flight marker beside the scan before a
                         # provider request. Losing tmp must not trigger a new bill.
                         try:
@@ -158,7 +173,7 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                                                idempotency_key=f"{scene_id}:{item['id']}:{item.get('generationRevision', 0)}")
                         item.update(jobId=job.job_id, generationStatus=job.status, stageMessage=job.stage_message)
                     except (CropNeedsReview, OSError, ValueError, KeyError, TypeError) as error:
-                        item.update(generationStatus="needs_review", reviewRequired=True, stageMessage="需要补拍独立视角", error=str(error))
+                        item.update(generationStatus="failed", stageMessage="没有可读取的输入图或预处理失败", error=str(error))
                     write_json(scene_path(scene_id), scene)
             scene = load(scene_id)
             scene["pipeline"]["preparation"] = "complete"
@@ -172,7 +187,7 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
         scene_id = scene["id"]
         if scene_id in processing and not processing[scene_id].done():
             return
-        scene.setdefault("pipeline", {}).update(autoReconstruct=auto, preparation="pending")
+        scene.setdefault("pipeline", {}).update(autoReconstruct=auto, preparation="pending", cropPolicy=CROP_POLICY)
         write_json(scene_path(scene_id), scene)
         task = asyncio.create_task(process_scene(scene_id, retry_ids or set()))
         processing[scene_id] = task
@@ -181,6 +196,8 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
 
     @app.on_event("startup")
     async def resume_scan_pipelines() -> None:
+        latest_path = scenes_root / "latest.json"
+        latest_id = read_json(latest_path).get("id") if latest_path.is_file() else None
         for path in scenes_root.glob("*/scene-manifest.json"):
             try:
                 scene = read_json(path)
@@ -188,6 +205,8 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                 continue
             pipeline = scene.get("pipeline", {})
             if pipeline.get("autoReconstruct") and pipeline.get("preparation") in ("pending", "running"):
+                schedule(scene)
+            elif scene["id"] == latest_id and pipeline.get("autoReconstruct") and pipeline.get("cropPolicy") != CROP_POLICY and any(item.get("generationStatus") == "needs_review" for item in scene["furniture"]):
                 schedule(scene)
             elif pipeline:
                 monitor_cache(scene["id"])

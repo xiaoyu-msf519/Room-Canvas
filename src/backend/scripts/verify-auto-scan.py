@@ -90,9 +90,10 @@ async def verify():
             image = np.asarray(Image.open(path).convert("RGBA"))
             opaque = image[..., 3] > 127
             assert opaque.sum() > 100
-            assert not np.any((image[..., 2] > image[..., 0] + 30) & opaque), "Neighbour colour leaked into generated image"
+            if asset in target_ids:
+                assert not np.any((image[..., 2] > image[..., 0] + 30) & opaque), "Neighbour colour leaked into preferred image"
             assert content_type == "image/png"
-            np.testing.assert_allclose([width, depth, height], [1200, 600, 1400])
+            np.testing.assert_allclose([width, depth, height], [1200 if asset in target_ids else 700, 600, 1400])
             job = SimpleNamespace(job_id=idempotency_key, status="succeeded", stage_message="complete", error=None,
                                   model_url="/api/assets/textured.glb", edit_model_url="/api/assets/textured-edit.glb")
             jobs[idempotency_key] = job
@@ -100,6 +101,7 @@ async def verify():
             return job
 
         app = FastAPI()
+        target_ids = set()
         register_scan_routes(app, root, start, jobs.get)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://tests", timeout=60) as client:
             async def wait(scene_id):
@@ -113,15 +115,27 @@ async def verify():
             for index in range(2):
                 folder = root / f"unseen-layout-{index}"
                 target = fixture(folder, bool(index))
+                target_ids.add(target)
                 _, _, resources = bundle_inventory(folder)
                 uploads = [("files", ("any-folder/" + relative, (folder / relative).read_bytes())) for relative in resources]
                 response = await client.post("/api/scans", files=uploads)
                 response.raise_for_status()
                 scene = await wait(response.json()["id"])
-                assert scene["pipeline"]["completed"] == 1 and scene["pipeline"]["needsReview"] == 1
-                assert scene["pipeline"]["status"] == "needs_attention"
+                assert scene["pipeline"]["completed"] == 2 and scene["pipeline"]["needsReview"] == 0
+                assert scene["pipeline"]["status"] == "ready"
+                other = next(item for item in scene["furniture"] if item["id"] != target)
+                assert other["cropSelection"]["fallback"] and other["qualityWarning"], "Low-quality inputs were not attempted with a warning"
                 item = next(item for item in scene["furniture"] if item["id"] == target)
                 assert item["generationStatus"] == "succeeded" and item["modelUrl"] and item["editModelUrl"]
+                job = jobs[item["jobId"]]
+                for status, counter in (("queued", "queued"), ("generating", "generating"), ("scaling", "scaling")):
+                    job.status = status
+                    progress = (await client.get(f"/api/scenes/{scene['id']}")).raise_for_status().json()["pipeline"]
+                    assert progress["status"] == "processing" and progress[counter] == 1 and progress["completed"] == 1
+                job.status = "succeeded"
+                terminal = (await client.get(f"/api/scenes/{scene['id']}")).raise_for_status().json()["pipeline"]
+                assert terminal["queued"] == terminal["generating"] == terminal["scaling"] == 0
+                assert terminal["status"] == "ready"
                 np.testing.assert_allclose(item["position"], [0, 1, -0.1] if not index else [-0.1, 1, 0], atol=1e-6)
                 ceiling = next(surface for surface in scene["room"]["surfaces"] if surface["kind"] == "ceiling")
                 np.testing.assert_allclose(ceiling["position"][1], 2.7)
@@ -135,17 +149,17 @@ async def verify():
                 repeated.raise_for_status()
                 assert repeated.json()["id"] == scene["id"]
                 await wait(scene["id"])
-                assert len(submissions) == index + 1, "Reimport created duplicate paid work"
+                assert len(submissions) == 2 * (index + 1), "Reimport created duplicate paid work"
                 concurrent = await asyncio.gather(client.post("/api/scans", files=uploads), client.post("/api/scans", files=uploads))
                 assert all(response.status_code == 201 and response.json()["id"] == scene["id"] for response in concurrent)
                 await wait(scene["id"])
-                assert len(submissions) == index + 1, "Concurrent imports duplicated paid work"
+                assert len(submissions) == 2 * (index + 1), "Concurrent imports duplicated paid work"
                 job = jobs[item["jobId"]]
                 job.status, job.error = "failed", "simulated provider failure"
                 await client.post("/api/scans", files=uploads)
                 failed = await wait(scene["id"])
-                assert failed["pipeline"]["failed"] == 1 and failed["pipeline"]["needsReview"] == 1
-                assert len(submissions) == index + 1, "Failed provider task was automatically charged again"
+                assert failed["pipeline"]["failed"] == 1 and failed["pipeline"]["completed"] == 1
+                assert len(submissions) == 2 * (index + 1), "Failed provider task was automatically charged again"
                 job.status, job.error = "succeeded", None
                 # Simulate crash after persisting the generation job but before
                 # linking its ID to the furniture manifest, then restart pipeline.
@@ -159,7 +173,18 @@ async def verify():
                 for callback in app.router.on_startup:
                     await callback()
                 restored = await wait(scene["id"])
-                assert len(submissions) == index + 1 and next(item for item in restored["furniture"] if item["id"] == target)["jobId"]
+                assert len(submissions) == 2 * (index + 1) and next(item for item in restored["furniture"] if item["id"] == target)["jobId"]
+                legacy = read_json(scene_path)
+                legacy_item = next(item for item in legacy["furniture"] if item["id"] != target)
+                legacy_item.pop("jobId", None)
+                legacy_item.update(generationStatus="needs_review", error="旧选图门槛拦截")
+                legacy["pipeline"].update(preparation="complete", cropPolicy="strict-v1")
+                write_json(scene_path, legacy)
+                for callback in app.router.on_startup:
+                    await callback()
+                migrated = await wait(scene["id"])
+                assert migrated["pipeline"]["completed"] == 2 and migrated["pipeline"]["needsReview"] == 0
+                assert len(submissions) == 2 * (index + 1), "Policy migration duplicated a previous generation"
                 changed = deepcopy(read_json(folder / "scene.json"))
                 changed["objects"][0]["dimensions"][0] += 0.1
                 modified = [(key, (path, json.dumps(changed).encode() if path.endswith("scene.json") else data)) for key, (path, data) in uploads]

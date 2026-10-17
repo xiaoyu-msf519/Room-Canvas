@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo } from 'react'
-import { DoubleSide, Shape } from 'three'
+import { useFrame, useThree } from '@react-three/fiber'
+import { DoubleSide, Shape, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import type { RoomSurface } from '../types/scene'
-import { createRoomVolume, createWallMaterials } from './wallVisibility'
+import { createWallVisuals } from './wallVisibility'
 
 function Floor({ surface }: { surface: RoomSurface }) {
   const shape = useMemo(() => {
@@ -21,20 +22,22 @@ function Floor({ surface }: { surface: RoomSurface }) {
 export function ScannedRoom() {
   const scan = useRoomCanvasStore((state) => state.scan)
   const edit = useRoomCanvasStore((state) => state.mode === 'edit')
+  const { camera } = useThree()
   // Task polling replaces the manifest; geometry-identical polls must reuse GPU resources.
   const geometryKey = JSON.stringify(scan?.room.surfaces ?? [])
-  const wallMaterials = useMemo(() => createWallMaterials(createRoomVolume(JSON.parse(geometryKey))), [geometryKey])
-  useLayoutEffect(() => { wallMaterials.edit.value = edit }, [edit, wallMaterials])
-  useEffect(() => () => wallMaterials.dispose(), [wallMaterials])
+  const visuals = useMemo(() => createWallVisuals(JSON.parse(geometryKey)), [geometryKey])
+  const cameraPosition = useMemo(() => new Vector3(), [])
+  const updateWalls = () => visuals.update(camera.getWorldPosition(cameraPosition), edit)
+  useFrame(updateWalls)
+  useLayoutEffect(updateWalls, [edit, camera, visuals, cameraPosition])
+  useEffect(() => () => visuals.dispose(), [visuals])
   if (!scan) return null
   return <group name="scanned-room">
-    {scan.room.surfaces.map((surface) => surface.kind === 'floor' ? <Floor key={surface.id} surface={surface} /> : <group key={surface.id} position={surface.position} quaternion={surface.rotation}>
-      <mesh name="scan-wall" material={wallMaterials.solid} receiveShadow>
+    {scan.room.surfaces.filter((surface) => surface.kind === 'floor').map((surface) => <Floor key={surface.id} surface={surface} />)}
+    {visuals.walls.map(({ surface, material }) =>
+      <mesh key={surface.id} name="scan-wall" material={material} position={surface.position} quaternion={surface.rotation} receiveShadow>
         <boxGeometry args={surface.size} />
       </mesh>
-      {edit && <mesh name="scan-wall-cutaway" material={wallMaterials.overlay} renderOrder={1} receiveShadow>
-        <boxGeometry args={surface.size} />
-      </mesh>}
-    </group>)}
+    )}
   </group>
 }

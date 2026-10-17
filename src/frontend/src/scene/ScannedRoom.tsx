@@ -4,6 +4,7 @@ import { DoubleSide, Shape, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import type { RoomSurface } from '../types/scene'
 import { createWallVisuals } from './wallVisibility'
+import { createWallTransparency } from './wallTransparency'
 
 function Floor({ surface }: { surface: RoomSurface }) {
   const shape = useMemo(() => {
@@ -26,14 +27,19 @@ export function ScannedRoom() {
   // Task polling replaces the manifest; geometry-identical polls must reuse GPU resources.
   const geometryKey = JSON.stringify(scan?.room.surfaces ?? [])
   const visuals = useMemo(() => createWallVisuals(JSON.parse(geometryKey)), [geometryKey])
+  const transparency = useMemo(() => createWallTransparency(visuals.walls), [visuals])
   const cameraPosition = useMemo(() => new Vector3(), [])
   const reducedMotion = useRef(false)
-  const updateWalls = () => visuals.update(camera.getWorldPosition(cameraPosition), edit, useRoomCanvasStore.getState().furnitureList)
+  const updateWalls = () => {
+    camera.getWorldPosition(cameraPosition)
+    visuals.update(cameraPosition, edit, useRoomCanvasStore.getState().furnitureList)
+    if (edit) transparency.update(cameraPosition)
+  }
   useFrame((_, delta) => {
     updateWalls()
     visuals.advance(delta, reducedMotion.current)
   })
-  useLayoutEffect(updateWalls, [edit, camera, visuals, cameraPosition])
+  useLayoutEffect(updateWalls, [edit, camera, visuals, transparency, cameraPosition])
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -43,13 +49,17 @@ export function ScannedRoom() {
     return () => preference.removeEventListener('change', sync)
   }, [])
   useEffect(() => () => visuals.dispose(), [visuals])
+  useEffect(() => () => transparency.dispose(), [transparency])
   if (!scan) return null
   return <group name="scanned-room">
     {scan.room.surfaces.filter((surface) => surface.kind === 'floor').map((surface) => <Floor key={surface.id} surface={surface} />)}
     {visuals.walls.map(({ surface, material }) =>
-      <mesh key={surface.id} name="scan-wall" material={material} position={surface.position} quaternion={surface.rotation} receiveShadow>
+      <mesh key={surface.id} name="scan-wall" visible={!edit} material={material} position={surface.position} quaternion={surface.rotation} receiveShadow>
         <boxGeometry args={surface.size} />
       </mesh>
     )}
+    <group name="edit-wall-fragments" visible={edit}>
+      {transparency.meshes.map((mesh) => <primitive key={mesh.uuid} object={mesh} />)}
+    </group>
   </group>
 }

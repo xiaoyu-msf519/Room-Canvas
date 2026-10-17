@@ -27,6 +27,7 @@ try {
   const floor = createWalkFloor(scene.room.surfaces)
   const spawn = findWalkSpawn(colliders, floor)
   assert.ok(spawn, 'There is no valid walk spawn in the scanned room')
+  assert.equal(spawn.y, 1.5, 'Play spawn must be 1.5m above the floor')
   assert.ok(canStandAt(spawn.x, spawn.z, colliders, floor))
   assert.equal(canStandAt(100, 100, colliders, floor), false)
   const wall = scene.room.colliders[0]

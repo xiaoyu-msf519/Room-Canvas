@@ -3,7 +3,7 @@ import type { Camera } from 'three'
 import { OBB } from 'three/examples/jsm/math/OBB.js'
 import type { RoomSurface, SceneCollider } from '../types/scene'
 
-export const EYE_HEIGHT = 1.7
+export const EYE_HEIGHT = 1.5
 export const WALK_LIMIT = 9.7
 const PLAYER_RADIUS = 0.25
 

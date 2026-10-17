@@ -6,14 +6,62 @@ import { useThree } from '@react-three/fiber'
 import { createServer } from 'vite'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
-const { Quaternion, Vector3 } = createRequire(import.meta.url)('three')
+const { BoxGeometry, Mesh, PerspectiveCamera, Quaternion, Raycaster, Vector2, Vector3 } = createRequire(import.meta.url)('three')
 const vite = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true }, appType: 'custom' })
 let renderer
 try {
   const { createWallFacing, createWallOccluder, createWallVisuals, isInsideFloor, wallOpacityAt, CUTAWAY_OPACITY, WALL_FADE_SECONDS } = await vite.ssrLoadModule('/src/scene/wallVisibility.ts')
   const { createWalkFloor } = await vite.ssrLoadModule('/src/scene/navigation.ts')
+  const { createWallTransparency } = await vite.ssrLoadModule('/src/scene/wallTransparency.ts')
   const { ScannedRoom } = await vite.ssrLoadModule('/src/scene/ScannedRoom.tsx')
   const { useRoomCanvasStore } = await vite.ssrLoadModule('/src/state/useRoomCanvasStore.ts')
+
+  function verifyFaceOrder(surfaces, positions) {
+    const visuals = createWallVisuals(surfaces)
+    const transparency = createWallTransparency(visuals.walls)
+    const sourceMeshes = visuals.walls.filter(({ surface }) => surface.size.every((size) => size >= 0.00001)).map(({ surface, material }) => {
+      const mesh = new Mesh(new BoxGeometry(...surface.size), material)
+      mesh.userData.wallId = surface.id
+      mesh.position.fromArray(surface.position)
+      mesh.quaternion.fromArray(surface.rotation)
+      mesh.updateMatrixWorld(true)
+      return mesh
+    })
+    transparency.meshes.forEach((mesh) => mesh.updateMatrixWorld(true))
+    const camera = new PerspectiveCamera(52, 1.5, 0.05, 100)
+    const raycaster = new Raycaster()
+    let checked = 0
+    try {
+      for (const position of positions) {
+        camera.position.fromArray(position)
+        camera.lookAt(0, Math.min(position[1], 0.8), 0)
+        camera.updateMatrixWorld(true)
+        transparency.update(camera.position)
+        for (let x = -0.95; x < 1; x += 0.1) {
+          for (let y = -0.9; y < 1; y += 0.15) {
+            raycaster.setFromCamera(new Vector2(x, y), camera)
+            const hits = raycaster.intersectObjects(transparency.meshes, false)
+            const source = raycaster.intersectObjects(sourceMeshes, false)
+            assert.equal(Boolean(hits.length), Boolean(source.length), `BSP geometry mismatch at ${position}, pixel ${x},${y}: source ${source[0]?.object.userData.wallId}, split ${hits[0]?.object.userData.wallId}, ${transparency.meshes.length} face groups`)
+            if (hits.length) assert.ok(Math.abs(hits[0].distance - source[0].distance) < 0.001, 'BSP splitting displaced the wall surface')
+            for (let near = 0; near < hits.length; near++) {
+              for (let far = near + 1; far < hits.length; far++) {
+                if (hits[far].distance - hits[near].distance < 0.001) continue
+                assert.ok(hits[far].object.renderOrder < hits[near].object.renderOrder, `Wall fragments render in front of nearer faces from ${position}`)
+                checked++
+              }
+            }
+          }
+        }
+      }
+      assert.ok(checked > 0, 'Face-order regression did not cover overlapping wall layers')
+      return `${transparency.meshes.length} face groups / ${checked} depth-order comparisons`
+    } finally {
+      sourceMeshes.forEach((mesh) => mesh.geometry.dispose())
+      transparency.dispose()
+      visuals.dispose()
+    }
+  }
   const floorRotation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -Math.PI / 2).toArray()
   const floor = {
     id: 'floor', kind: 'floor', position: [0, 0, 0], rotation: floorRotation, size: [4, 4, 0.05],
@@ -44,19 +92,19 @@ try {
   const fadingNorth = visuals.walls[0].material
   visuals.update(northCamera, true)
   assert.equal(fadingNorth.opacity, 1, 'Visibility change jumped to the target instead of fading')
-  assert.equal(fadingNorth.alphaHash, true, 'Edit walls need order-independent coverage transparency')
+  assert.equal(fadingNorth.alphaHash, false, 'Edit walls must use smooth opacity without dithering')
   visuals.advance(0.1)
   const partial = fadingNorth.opacity
   assert.ok(partial < 1 && partial > CUTAWAY_OPACITY, 'Intermediate fade-out opacity is missing')
-  assert.equal(fadingNorth.transparent, false)
-  assert.equal(fadingNorth.depthWrite, true)
+  assert.equal(fadingNorth.transparent, true)
+  assert.equal(fadingNorth.depthWrite, false)
   visuals.advance(WALL_FADE_SECONDS - 0.1)
   assert.equal(fadingNorth.opacity, CUTAWAY_OPACITY, 'Stationary camera prevented the fade from completing')
   visuals.update(southCamera, true)
   assert.equal(fadingNorth.opacity, CUTAWAY_OPACITY, 'Fade-in jumped on start')
   visuals.advance(0.25)
   assert.ok(fadingNorth.opacity > CUTAWAY_OPACITY && fadingNorth.opacity < 1)
-  assert.equal(fadingNorth.depthWrite, true, 'Fading walls must keep per-pixel depth testing and writing')
+  assert.equal(fadingNorth.depthWrite, false, 'Smooth fades must not hide geometry behind them by writing depth')
   const interrupted = fadingNorth.opacity
   visuals.update(northCamera, true)
   assert.equal(fadingNorth.opacity, interrupted, 'Reversing the camera restarted the opacity from an endpoint')
@@ -67,8 +115,8 @@ try {
   visuals.update(southCamera, true)
   visuals.advance(WALL_FADE_SECONDS)
   assert.equal(fadingNorth.opacity, 1)
-  assert.equal(fadingNorth.transparent, false, 'Edit wall entered the object-sorted transparency queue')
-  assert.equal(fadingNorth.depthWrite, true, 'Fade endpoint changed Edit wall depth writes')
+  assert.equal(fadingNorth.transparent, true, 'Fade endpoint changed Edit wall blending')
+  assert.equal(fadingNorth.depthWrite, false, 'Fade endpoint changed Edit wall depth writes')
   visuals.update(northCamera, true)
   visuals.advance(0.1)
   visuals.update(northCamera, false)
@@ -86,9 +134,9 @@ try {
     const versions = sample.walls.map((wall) => wall.material.version)
     const assertStablePipeline = (frame) => {
       sample.walls.forEach(({ material }, index) => {
-        assert.equal(material.transparent, false, `Edit wall uses object-sorted blending at ${fps}fps, frame ${frame}`)
-        assert.equal(material.depthWrite, true, `Edit wall stopped writing depth at ${fps}fps, frame ${frame}`)
-        assert.equal(material.alphaHash, true, `Edit coverage transparency changed at ${fps}fps, frame ${frame}`)
+        assert.equal(material.transparent, true, `Edit wall blending changed at ${fps}fps, frame ${frame}`)
+        assert.equal(material.depthWrite, false, `Edit wall started writing depth at ${fps}fps, frame ${frame}`)
+        assert.equal(material.alphaHash, false, `Edit wall acquired dithering at ${fps}fps, frame ${frame}`)
         assert.equal(material.version, versions[index], `Fade invalidated the material shader at ${fps}fps, frame ${frame}`)
       })
     }
@@ -122,9 +170,9 @@ try {
     const faded = visuals.walls.filter((wall) => wall.material.opacity < 1).map((wall) => wall.surface.id)
     assert.deepEqual(faded.sort(), [...fadedIds].sort(), `Wrong wall cutaway from ${position}`)
     for (const wall of visuals.walls) {
-      assert.equal(wall.material.transparent, false)
-      assert.equal(wall.material.depthWrite, true)
-      assert.equal(wall.material.alphaHash, true)
+      assert.equal(wall.material.transparent, true)
+      assert.equal(wall.material.depthWrite, false)
+      assert.equal(wall.material.alphaHash, false)
     }
     visuals.update(new Vector3(...position), false)
     assert.ok(visuals.walls.every((wall) => wall.material.opacity === 1 && !wall.material.transparent && wall.material.depthWrite), 'Play wall is not opaque')
@@ -189,7 +237,13 @@ try {
   useRoomCanvasStore.getState().applyScan({ id: 'wall-test', room: { surfaces, colliders: [] }, furniture: [] })
   renderer = await create(React.createElement(React.Fragment, null, React.createElement(ScannedRoom), React.createElement(CameraProbe)), { camera: { position: [0, 4, 6] } })
   const walls = () => renderer.scene.findAll((node) => node.instance.name === 'scan-wall')
+  const fragments = () => renderer.scene.findAll((node) => node.instance.name === 'scan-wall-fragment')
+  const fragmentGroup = () => renderer.scene.findByProps({ name: 'edit-wall-fragments' }).instance
   const solid = walls()[0].instance.material
+  const firstFragment = fragments()[0].instance
+  assert.ok(walls().every((wall) => !wall.instance.visible), 'Edit draws both source boxes and BSP faces')
+  assert.equal(fragmentGroup().visible, true)
+  assert.ok(fragments().every((fragment) => walls().some((wall) => fragment.instance.material === wall.instance.material)), 'Wall fragments do not share the animated wall materials')
   await renderer.advanceFrames(32, 1 / 60)
   assert.equal(walls()[0].instance.material.opacity, CUTAWAY_OPACITY)
   assert.equal(walls()[1].instance.material.opacity, 1)
@@ -199,14 +253,20 @@ try {
   assert.equal(walls()[1].instance.material.opacity, CUTAWAY_OPACITY)
   await act(async () => useRoomCanvasStore.getState().setMode('play'))
   assert.ok(walls().every((wall) => wall.instance.material.opacity === 1 && wall.instance.material.depthWrite))
+  assert.ok(walls().every((wall) => wall.instance.visible), 'Play source wall meshes are hidden')
+  assert.equal(fragmentGroup().visible, false, 'Play also renders the Edit face fragments')
   await act(async () => useRoomCanvasStore.getState().setMode('edit'))
   await act(async () => useRoomCanvasStore.getState().applyScan({ id: 'wall-test', room: { surfaces: structuredClone(surfaces), colliders: [] }, furniture: [] }))
   assert.equal(walls()[0].instance.material, solid, 'Task polling reallocated wall materials')
+  assert.equal(fragments()[0].instance, firstFragment, 'Task polling rebuilt the wall BSP')
   await renderer.unmount()
   renderer = null
 
   // Run the same camera updates against the real 30-panel scan, not only a cube.
   const actual = await fetch('http://127.0.0.1:8000/api/scenes/latest').then((response) => response.json())
+  const positions = [[8, 8], [-8, 8], [-8, -8], [8, -8]].flatMap(([x, z]) => [7, 1.5, 0.25].map((height) => [x, height, z]))
+  const bspStats = verifyFaceOrder(actual.room.surfaces, positions)
+  verifyFaceOrder(sSurfaces, [[-6, 5, 6], [-6, 1.5, 6], [-6, 0.25, 6]])
   useRoomCanvasStore.getState().applyScan(actual)
   renderer = await create(React.createElement(React.Fragment, null, React.createElement(ScannedRoom), React.createElement(CameraProbe)), { camera: { position: [8, 7, 8] } })
   const counts = []
@@ -218,9 +278,9 @@ try {
       camera.lookAt(0, Math.min(height, 0.8), 0)
       await renderer.advanceFrames(1, 1 / 60)
       walls().forEach(({ instance: { material } }, index) => {
-        assert.equal(material.transparent, false, 'Changing elevation put a wall into the object-sorted queue')
-        assert.equal(material.alphaHash, true)
-        assert.equal(material.depthWrite, true)
+        assert.equal(material.transparent, true, 'Changing elevation disabled smooth blending')
+        assert.equal(material.alphaHash, false)
+        assert.equal(material.depthWrite, false)
         assert.equal(material.version, versions[index], 'Changing elevation invalidated a wall shader')
         assert.ok(Math.abs(material.opacity - before[index]) < 0.1, 'Changing elevation bypassed the fade')
       })
@@ -238,7 +298,7 @@ try {
   await renderer.advanceFrames(32, 1 / 60)
   assert.equal(walls()[1].instance.material.opacity, CUTAWAY_OPACITY)
   assert.equal(walls()[3].instance.material.opacity, 1)
-  console.log(`PASS: depth-correct Alpha Hash transparency at low/high angles, stable Edit render queue/depth/shader through fade endpoints, repeated 0.5s fades at 30/60/120fps, interruption, stationary camera, reduced motion, immediate Play opacity, S-boundary occlusion, material reuse; actual scan: ${counts.join('; ')}`)
+  console.log(`PASS: smooth opacity without dithering; BSP ${bspStats}; stable Edit pipeline through repeated 0.5s fades at 30/60/120fps, interruption, reduced motion, immediate Play opacity, S-boundary occlusion, material reuse; actual scan: ${counts.join('; ')}`)
 } finally {
   if (renderer) await renderer.unmount()
   await vite.close()

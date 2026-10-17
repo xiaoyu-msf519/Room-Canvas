@@ -1,7 +1,5 @@
 import {
   CloudSun,
-  Eye,
-  EyeOff,
   Moon,
   Play,
   Save,
@@ -22,10 +20,8 @@ const lightingTools: Array<{ id: LightingPreset; label: string; icon: typeof Sun
 
 export function TopToolbar({ onToast }: TopToolbarProps) {
   const mode = useRoomCanvasStore((state) => state.mode)
-  const showWireframe = useRoomCanvasStore((state) => state.showWireframe)
   const lightingPreset = useRoomCanvasStore((state) => state.lightingPreset)
   const setMode = useRoomCanvasStore((state) => state.setMode)
-  const setShowWireframe = useRoomCanvasStore((state) => state.setShowWireframe)
   const setLightingPreset = useRoomCanvasStore((state) => state.setLightingPreset)
 
   const playMode = mode === 'play'
@@ -40,16 +36,6 @@ export function TopToolbar({ onToast }: TopToolbarProps) {
             <small>SPATIAL EDITOR / 01</small>
           </div>
         </div>
-
-        <button
-          className={`tool-button wireframe-button ${showWireframe ? 'is-active' : ''}`}
-          type="button"
-          onClick={() => setShowWireframe(!showWireframe)}
-          title="显示原家具 Bounding Box"
-        >
-          {showWireframe ? <Eye size={15} /> : <EyeOff size={15} />}
-          <span>原框对比</span>
-        </button>
       </div>
 
       <div className="mode-switcher" aria-live="polite">

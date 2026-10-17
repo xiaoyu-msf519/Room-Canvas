@@ -139,17 +139,9 @@ export function FurnitureModels() {
   const furnitureList = useRoomCanvasStore((state) => state.furnitureList)
   const draggingAssetId = useRoomCanvasStore((state) => state.draggingAssetId)
   const asset = useRoomCanvasStore((state) => state.uploadedAssets.find((item) => item.id === draggingAssetId))
-  const showWireframe = useRoomCanvasStore((state) => state.showWireframe)
   return <>
     {furnitureList.map((item) => <FurnitureObject key={item.id} item={item} />)}
     {asset && <PlacementPreview asset={asset} />}
-    {showWireframe && furnitureList.filter((item) => item.originalBounds).map((item) => {
-      const bounds = item.originalBounds!
-      return <mesh key={`original-${item.id}`} position={bounds.position} quaternion={bounds.rotation}>
-        <boxGeometry args={bounds.size} />
-        <meshBasicMaterial color="#f6aa72" wireframe transparent opacity={0.45} depthWrite={false} />
-      </mesh>
-    })}
   </>
 }
 

@@ -45,6 +45,7 @@ export interface RoomSurface extends SceneCollider {
 }
 
 export interface SceneManifest {
+  cache?: { restored?: boolean; folder?: string; warning?: string }
   pipeline?: {
     status: 'processing' | 'ready' | 'needs_attention' | 'idle'
     preparation: 'pending' | 'running' | 'complete' | 'failed'

@@ -184,4 +184,5 @@ async def verify():
         print("PASS: production generation entry persists/reuses a stable job ID without duplicate scheduling")
 
 
-asyncio.run(verify())
+if __name__ == "__main__":
+    asyncio.run(verify())

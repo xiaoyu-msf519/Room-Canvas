@@ -2,6 +2,7 @@
 /env/
 /tmp/
 **/node_modules/
+**/.roomcanvas-cache/
 
 # Private input materials may contain credentials
 /reference/ToCodex/API.md

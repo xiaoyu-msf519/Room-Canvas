@@ -28,8 +28,23 @@ export async function collectScanFiles(files: File[]): Promise<Array<{ file: Fil
     if (camera.depth?.confidencePath) add(camera.depth.confidencePath, false)
   }
   for (const object of scene.objects) for (const crop of object.crops ?? []) add(crop.imagePath, false)
+  if ([...selected.values()].reduce((size, file) => size + file.size, 0) > 300 * 1024 * 1024) throw new Error('所需扫描数据不能超过 300 MB')
+  const cached = resource('.roomcanvas-cache/cache.json', false)
+  if (cached) {
+    const cache = JSON.parse(await cached.text())
+    if (cache.schemaVersion !== 'roomcanvas.cache.v1') throw new Error('房间缓存版本无效，不会自动重新生成')
+    selected.set('.roomcanvas-cache/cache.json', cached)
+    for (const item of cache.furniture ?? []) for (const key of ['model', 'editModel']) {
+      const descriptor = item[key]
+      if (!descriptor) continue
+      if (!/^models\/[a-f0-9]{64}\.glb$/.test(descriptor.file)) throw new Error('缓存模型路径无效')
+      const relative = '.roomcanvas-cache/' + descriptor.file
+      const model = resource(relative, false)
+      if (model) selected.set(relative, model)
+    }
+  }
   const result = [...selected].map(([path, file]) => ({ path, file }))
-  if (result.reduce((size, entry) => size + entry.file.size, 0) > 300 * 1024 * 1024) throw new Error('所需扫描数据不能超过 300 MB')
+  if (result.filter((entry) => entry.path.startsWith('.roomcanvas-cache/')).reduce((size, entry) => size + entry.file.size, 0) > 2 * 1024 * 1024 * 1024) throw new Error('房间模型缓存不能超过 2 GB')
   return result
 }
 

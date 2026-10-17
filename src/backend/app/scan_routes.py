@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import os
 import shutil
 import uuid
 import zipfile
@@ -8,9 +11,11 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
 from .scan_crops import prepare_furniture_crop, CropNeedsReview
 from .scan_import import MAX_BUNDLE_BYTES, bundle_inventory, find_bundle
+from .scan_cache import CACHE_FOLDER, MAX_CACHE_BYTES, cache_index, cache_resources, restore_cache, save_cache
 from .scans import adapt_scan, read_json, safe_path, write_json
 from .surface_materials import apply_finishes
 
@@ -20,6 +25,10 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
     scenes_root.mkdir(parents=True, exist_ok=True)
     import_lock = asyncio.Lock()
     processing: dict[str, asyncio.Task] = {}
+    cache_workers: dict[str, asyncio.Task] = {}
+    cache_locks: dict[str, asyncio.Lock] = {}
+    library_root = Path(os.getenv("ROOMCANVAS_LIBRARY_DIR", str(root / "reference/ToCodex/room"))).resolve()
+    models_root = root / "tmp/models"
 
     def scene_path(scene_id: str) -> Path:
         if not scene_id.isalnum():
@@ -70,13 +79,48 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
             pipeline.update(status=status, stageMessage=message, completed=complete, failed=failed, needsReview=review, total=len(states))
         return scene
 
+    async def snapshot_targets(scene: dict) -> None:
+        targets_path = scene_path(scene["id"]).parent / "cache-targets.json"
+        if not targets_path.is_file():
+            return
+        async with cache_locks.setdefault(scene["id"], asyncio.Lock()):
+            for target in read_json(targets_path):
+                bundle = Path(target).resolve()
+                if not bundle.is_relative_to(library_root) or not (bundle / "manifest.json").is_file():
+                    continue
+                await asyncio.to_thread(save_cache, scene, bundle, models_root)
+
+    def monitor_cache(scene_id: str) -> None:
+        if scene_id in cache_workers and not cache_workers[scene_id].done():
+            return
+        async def run():
+            previous = None
+            while True:
+                scene = refresh(load(scene_id))
+                signature = json.dumps({"furniture": scene["furniture"], "pipeline": scene.get("pipeline"), "finishes": scene.get("finishRecovery")}, sort_keys=True)
+                if signature != previous:
+                    try:
+                        await snapshot_targets(scene)
+                    except (OSError, ValueError, KeyError):
+                        stored = load(scene_id)
+                        stored["cache"] = {"warning": "扫描目录缓存写入失败，请检查目录权限与磁盘空间"}
+                        write_json(scene_path(scene_id), stored)
+                    previous = signature
+                if scene.get("pipeline", {}).get("status") != "processing":
+                    return
+                await asyncio.sleep(2)
+        task = asyncio.create_task(run())
+        cache_workers[scene_id] = task
+        task.add_done_callback(lambda finished: cache_workers.pop(scene_id, None) if cache_workers.get(scene_id) is finished else None)
+
     async def process_scene(scene_id: str, retry_ids: set[str]) -> None:
         try:
             scene = load(scene_id)
             scene["pipeline"].update(preparation="running", error=None)
             write_json(scene_path(scene_id), scene)
             bundle = bundle_path(scene)
-            await asyncio.to_thread(apply_finishes, scene, bundle, scene_path(scene_id).parent / "surface-finishes.json")
+            if not (scene.get("cache", {}).get("restored") and scene.get("finishRecovery", {}).get("status") == "complete"):
+                await asyncio.to_thread(apply_finishes, scene, bundle, scene_path(scene_id).parent / "surface-finishes.json")
             write_json(scene_path(scene_id), scene)
             if scene["pipeline"].get("autoReconstruct"):
                 for furniture_id in [item["id"] for item in scene["furniture"]]:
@@ -84,6 +128,8 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                     item = next(item for item in scene["furniture"] if item["id"] == furniture_id)
                     current = read_generation(item.get("jobId", ""))
                     retry = furniture_id in retry_ids
+                    if item.get("generationStatus") == "succeeded" and item.get("modelUrl") and item.get("editModelUrl"):
+                        continue
                     if current and (current.status != "failed" or not retry):
                         continue
                     if item.get("generationStatus") in ("failed", "needs_review") and not retry:
@@ -100,6 +146,14 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                         crop = safe_path(bundle, selection["imagePath"])
                         width, height, depth = item["size"]
                         prompt = f"One single {item['category']}, upright Y-up. Reconstruct only this object, including its own legs and supports. No adjacent furniture, duplicates, floor, walls or background."
+                        # Persist an in-flight marker beside the scan before a
+                        # provider request. Losing tmp must not trigger a new bill.
+                        try:
+                            await snapshot_targets(scene)
+                        except (OSError, ValueError, KeyError):
+                            item.update(generationStatus="failed", stageMessage="扫描目录缓存写入失败", error="请检查扫描目录权限、缓存完整性及磁盘空间；尚未提交图生 3D")
+                            write_json(scene_path(scene_id), scene)
+                            continue
                         job = start_generation(item["id"], item["name"], crop, "image/png", width * 1000, depth * 1000, height * 1000, prompt,
                                                idempotency_key=f"{scene_id}:{item['id']}:{item.get('generationRevision', 0)}")
                         item.update(jobId=job.job_id, generationStatus=job.status, stageMessage=job.stage_message)
@@ -123,6 +177,7 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
         task = asyncio.create_task(process_scene(scene_id, retry_ids or set()))
         processing[scene_id] = task
         task.add_done_callback(lambda finished: processing.pop(scene_id, None) if processing.get(scene_id) is finished else None)
+        monitor_cache(scene_id)
 
     @app.on_event("startup")
     async def resume_scan_pipelines() -> None:
@@ -134,8 +189,10 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
             pipeline = scene.get("pipeline", {})
             if pipeline.get("autoReconstruct") and pipeline.get("preparation") in ("pending", "running"):
                 schedule(scene)
+            elif pipeline:
+                monitor_cache(scene["id"])
 
-    async def adopt(bundle: Path, auto: bool) -> dict:
+    async def adopt(bundle: Path, auto: bool, cache_target: Path | None = None) -> dict:
         async with import_lock:
             try:
                 scan_id, fingerprint, files = await asyncio.to_thread(bundle_inventory, bundle)
@@ -162,7 +219,6 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                 if existing:
                     scene = load(existing["id"])
                     scene["importFingerprint"] = fingerprint
-                    write_json(scene_path(scene["id"]), scene)
                 else:
                     scene_id = uuid.uuid5(uuid.NAMESPACE_URL, f"roomcanvas.scan:{scan_id}").hex
                     scene = await asyncio.to_thread(adapt_scan, bundle, scene_id)
@@ -172,7 +228,15 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                         target.parent.mkdir(parents=True, exist_ok=True)
                         await asyncio.to_thread(shutil.copy2, safe_path(bundle, relative), target)
                     scene["importFingerprint"] = fingerprint
-                    write_json(scene_path(scene_id), scene)
+                await asyncio.to_thread(restore_cache, scene, bundle, models_root, read_generation)
+                write_json(scene_path(scene["id"]), scene)
+                if cache_target is not None:
+                    targets_path = scene_path(scene["id"]).parent / "cache-targets.json"
+                    targets = read_json(targets_path) if targets_path.is_file() else []
+                    target = str(cache_target.resolve())
+                    if target not in targets:
+                        targets.append(target)
+                        write_json(targets_path, targets)
                 write_json(scenes_root / "latest.json", {"id": scene["id"]})
                 schedule(scene, auto)
                 return refresh(load(scene["id"]))
@@ -189,6 +253,42 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
         scene = load(read_json(latest)["id"])
         return refresh(scene)
 
+    def library_entries() -> list[tuple[dict, Path]]:
+        entries = []
+        if not library_root.is_dir():
+            return entries
+        for manifest_path in library_root.rglob("manifest.json"):
+            bundle = manifest_path.parent.resolve()
+            if not bundle.is_relative_to(library_root) or CACHE_FOLDER in bundle.parts:
+                continue
+            relative = bundle.relative_to(library_root).as_posix()
+            try:
+                metadata = read_json(manifest_path)
+                cached = cache_index(bundle)
+                completed = sum(item.get("status") == "succeeded" for item in (cached or {}).get("furniture", []))
+                entry = {"id": hashlib.sha256(relative.encode()).hexdigest()[:24], "folder": relative, "title": metadata.get("title", relative),
+                         "scanId": metadata["id"], "status": metadata.get("status"), "objectCount": metadata.get("objectCount", 0),
+                         "cachedModels": completed, "hasCache": cached is not None, "createdAt": metadata.get("createdAt", "")}
+                entries.append((entry, bundle))
+            except (OSError, ValueError, KeyError):
+                entries.append(({"id": hashlib.sha256(relative.encode()).hexdigest()[:24], "folder": relative, "title": relative,
+                                 "status": "invalid", "objectCount": 0, "cachedModels": 0, "hasCache": False}, bundle))
+        return sorted(entries, key=lambda entry: entry[0].get("createdAt", ""), reverse=True)
+
+    @app.get("/api/room-library")
+    async def room_library() -> dict:
+        return {"rooms": [entry for entry, _ in await asyncio.to_thread(library_entries)]}
+
+    @app.post("/api/room-library/{room_id}/load")
+    async def load_library_room(room_id: str, auto_reconstruct: bool = True) -> dict:
+        entry = next(((entry, bundle) for entry, bundle in await asyncio.to_thread(library_entries) if entry["id"] == room_id), None)
+        if entry is None:
+            raise HTTPException(404, "房间不存在")
+        metadata, bundle = entry
+        if metadata["status"] != "complete":
+            raise HTTPException(422, "这份 App 扫描未完成或缓存无效，不能自动建房")
+        return await adopt(bundle, auto_reconstruct, cache_target=bundle)
+
     @app.post("/api/scans", status_code=201)
     async def upload_scan(files: list[UploadFile] = File(...), auto_reconstruct: bool = True) -> dict:
         incoming = root / "tmp/scan-imports" / uuid.uuid4().hex
@@ -201,12 +301,12 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                 with path.open("wb") as output:
                     while chunk := await upload.read(1024 * 1024):
                         total += len(chunk)
-                        if total > MAX_BUNDLE_BYTES:
-                            raise HTTPException(413, "扫描包不能超过 300 MB")
+                        if total > MAX_BUNDLE_BYTES + MAX_CACHE_BYTES:
+                            raise HTTPException(413, "扫描数据和模型缓存超过大小限制")
                         output.write(chunk)
                 if len(files) == 1 and path.suffix.lower() == ".zip":
                     with zipfile.ZipFile(path) as archive:
-                        if len(archive.infolist()) > 5000 or sum(info.file_size for info in archive.infolist()) > MAX_BUNDLE_BYTES:
+                        if len(archive.infolist()) > 5000 or sum(info.file_size for info in archive.infolist()) > MAX_BUNDLE_BYTES + MAX_CACHE_BYTES:
                             raise HTTPException(413, "解压后的扫描包过大")
                         for info in archive.infolist():
                             target = safe_path(incoming, info.filename)
@@ -232,6 +332,28 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
     @app.get("/api/scenes/{scene_id}")
     async def get_scene(scene_id: str) -> dict:
         return refresh(load(scene_id))
+
+    @app.post("/api/scenes/{scene_id}/activate")
+    async def activate_scene(scene_id: str) -> dict:
+        scene = load(scene_id)
+        write_json(scenes_root / "latest.json", {"id": scene_id})
+        return refresh(scene)
+
+    @app.get("/api/scenes/{scene_id}/cache")
+    async def download_scene_cache(scene_id: str) -> FileResponse:
+        scene = refresh(load(scene_id))
+        if not scene.get("importFingerprint"):
+            _, fingerprint, _ = await asyncio.to_thread(bundle_inventory, bundle_path(scene))
+            scene["importFingerprint"] = fingerprint
+        destination = root / "tmp/cache-exports" / uuid.uuid4().hex
+        await asyncio.to_thread(save_cache, scene, destination, models_root)
+        archive_path = destination / "roomcanvas-cache.zip"
+        def archive():
+            with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_STORED) as output:
+                for relative in cache_resources(destination):
+                    output.write(safe_path(destination, relative), relative)
+        await asyncio.to_thread(archive)
+        return FileResponse(archive_path, filename="roomcanvas-cache.zip", background=BackgroundTask(shutil.rmtree, destination, ignore_errors=True))
 
     @app.get("/api/scenes/{scene_id}/files/{relative:path}")
     async def scan_file(scene_id: str, relative: str) -> FileResponse:

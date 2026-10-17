@@ -26,6 +26,11 @@ try {
   file('frames/image.json', 'unused sidecar')
   const selected = await collectScanFiles([...files.values()])
   assert.deepEqual(selected.map((entry) => entry.path).sort(), ['manifest.json', 'scene.json', 'cameras.json', 'objects/crop.png', 'frames/image.jpg', 'depth/image.f32', 'depth/image.u8'].sort())
+  const modelName = 'a'.repeat(64) + '.glb'
+  file('.roomcanvas-cache/cache.json', { schemaVersion: 'roomcanvas.cache.v1', furniture: [{ model: { file: 'models/' + modelName, sha256: 'a'.repeat(64) } }] })
+  file('.roomcanvas-cache/models/' + modelName, 'cached-model')
+  const portable = await collectScanFiles([...files.values()])
+  assert.ok(portable.some((entry) => entry.path === '.roomcanvas-cache/cache.json') && portable.some((entry) => entry.path.endsWith(modelName)), 'Folder reupload discarded its portable models')
   await assert.rejects(collectScanFiles([...files.values()].filter((entry) => entry !== files.get('frames/image.jpg'))), /frames\/image.jpg/)
   file('cameras.json', [{ imagePath: '../outside.jpg' }])
   await assert.rejects(collectScanFiles([...files.values()]), /越界/)
@@ -58,7 +63,7 @@ try {
   const markup = renderToStaticMarkup(React.createElement(ScanPanel, { onToast() {} }))
   assert.ok(markup.includes('房间已建成') && markup.includes('北向待校准') && markup.includes('webkitdirectory'))
   assert.equal(markup.includes('继续家具重建'), false, 'Automatic import still requires a manual reconstruction click')
-  console.log('PASS: arbitrary folder selection, exact required-file upload, input validation, upload progress/errors, automatic scene progress UI; no browser/network/paid calls')
+  console.log('PASS: arbitrary folder selection, required-file and portable-cache upload, input validation, upload progress/errors, automatic scene progress UI; no browser/network/paid calls')
 } finally {
   await vite.close()
   delete globalThis.XMLHttpRequest

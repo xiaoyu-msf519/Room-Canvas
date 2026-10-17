@@ -45,6 +45,9 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--cyan); outl
 .scan-pipeline { display: grid; gap: 6px; margin-top: 10px; font-size: 11px; color: #b8cdd2; }
 .scan-pipeline progress { width: 100%; height: 4px; accent-color: #79cdd3; }
 .scan-orientation { margin-top: 8px; font-size: 11px; color: #98b1b9; }
+.scan-room-select { width: 100%; min-width: 0; margin-top: 9px; height: 30px; color: #c4d5d9; background: #263035; border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; font-size: 11px; }
+.scan-cache-download { width: 100%; margin-top: 8px; }
+.scan-cache-warning { margin-top: 7px; font-size: 11px; line-height: 1.5; color: #e5b980; }
 .scan-furniture-list { display: grid; gap: 6px; margin-top: 10px; }
 .scan-furniture-row { display: flex; gap: 4px; }
 .scan-panel .scan-object { flex: 1; justify-content: flex-start; text-align: left; min-width: 0; padding: 4px; }

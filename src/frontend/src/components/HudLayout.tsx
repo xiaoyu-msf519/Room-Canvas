@@ -4,6 +4,7 @@ import { AssetDrawer } from './AssetDrawer'
 import { TopToolbar } from './TopToolbar'
 import { ScanPanel } from './ScanPanel'
 import { ResourceBrowser } from './ResourceBrowser'
+import { FurnitureActions } from './FurnitureActions'
 
 interface HudLayoutProps {
   onToast: (message: string) => void
@@ -15,6 +16,7 @@ export function HudLayout({ onToast }: HudLayoutProps) {
   return (
     <div className={`hud-layer ${isPlay ? 'is-play-mode' : ''}`}>
       <TopToolbar onToast={onToast} />
+      <FurnitureActions />
       {!isPlay && <AssetDrawer onToast={onToast} />}
       {!isPlay && <ScanPanel onToast={onToast} />}
       {!isPlay && <ResourceBrowser onToast={onToast} />}

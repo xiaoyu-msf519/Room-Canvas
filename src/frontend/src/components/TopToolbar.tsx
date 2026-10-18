@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import { SolarControls } from './SolarControls'
+import { saveCurrentRoomDraft } from '../state/useRoomDraftSync'
 
 interface TopToolbarProps {
   onToast: (message: string) => void
@@ -45,7 +46,7 @@ export function TopToolbar({ onToast }: TopToolbarProps) {
 
       <div className="toolbar-section toolbar-actions">
         {!playMode && <SolarControls showTime={false} />}
-        <button className="save-button" type="button" onClick={() => onToast('场景状态已保存到本地草稿')}>
+        <button className="save-button" type="button" onClick={() => onToast(saveCurrentRoomDraft() ? '场景状态已保存到本地草稿' : '本地保存失败，请检查浏览器存储空间')}>
           <Save size={15} />
           <span>保存场景</span>
         </button>

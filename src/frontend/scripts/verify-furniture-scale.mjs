@@ -17,6 +17,8 @@ try {
   const { furnitureDimensions, clampFurnitureScale } = await vite.ssrLoadModule('/src/scene/furnitureTransform.ts')
   assert.deepEqual(clampFurnitureScale(new Vector3(1, 1000, 1), [2,1,1], [2,1,1]).toArray(), [20,20,20])
   assert.deepEqual(clampFurnitureScale(new Vector3(1, 0.001, 1), [2,1,1], [2,1,1]).toArray(), [0.05,0.05,0.05])
+  assert.deepEqual(clampFurnitureScale(new Vector3(1000, 1, 1), [2,1,1], [2,1,1], 0).toArray(), [20,1,1])
+  assert.deepEqual(clampFurnitureScale(new Vector3(1, 1, 0.001), [2,1,1], [2,1,1], 2).toArray(), [1,1,0.05])
   const original = [2, 1, 1]
   const item = { id: 'scale-target', name: 'scale target', kind: 'original', position: [0, 0.5, 0], size: [...original], rotation: [0, Math.sin(0.3), 0, Math.cos(0.3)] }
   const scan = { id: 'scale-test', room: { surfaces: [], colliders: [] }, furniture: [item] }
@@ -35,7 +37,35 @@ try {
   await refresh()
   const scaleHandles = handlers().filter((node) => ancestor(node, 'furniture-scale-gizmo'))
   assert.equal(scaleHandles.length, 1, 'Uniform scaling must have exactly one handle')
+  const axisHandles = handlers().filter((node) => ancestor(node, 'furniture-axis-scale-gizmo'))
+  assert.equal(axisHandles.length, 3, 'X/Y/Z scaling must remain available alongside uniform scaling')
+  const centers = [...axisHandles, ...scaleHandles].map((handle) => handle.instance.children.find((child) => child.isMesh).getWorldPosition(new Vector3()))
+  for (let i = 0; i < centers.length; i++) for (let j = i + 1; j < centers.length; j++) assert.ok(centers[i].distanceTo(centers[j]) > 0.01, 'Scaling handles overlap')
   assert.equal(handlers().filter((node) => ancestor(node, 'furniture-move-gizmo')).length, 3, 'Move and rotate controls must remain simultaneous')
+  for (let cycle = 0; cycle < 6; cycle++) {
+    await refresh()
+    const axis = cycle % 3, handle = axisHandles[axis]
+    const direction = new Vector3(0,1,0).transformDirection(handle.instance.matrixWorld)
+    const click = handle.instance.children.find((child) => child.isMesh).getWorldPosition(new Vector3())
+    const before = [...useRoomCanvasStore.getState().furnitureList[0].size]
+    const position = model().position.clone()
+    const sign = cycle < 3 ? 1 : -1
+    await act(async () => { await renderer.fireEvent(handle, 'pointerDown', eventAt(click)) })
+    for (let step = 1; step <= 6; step++) {
+      await act(async () => { await renderer.fireEvent(handle, 'pointerMove', eventAt(click.clone().addScaledVector(direction, sign * step * 0.15))) })
+      await refresh()
+      const { dimensions } = furnitureDimensions(before, original, model().scale)
+      assert.ok(sign > 0 ? dimensions[axis] > before[axis] : dimensions[axis] < before[axis])
+      for (let other = 0; other < 3; other++) if (other !== axis) assert.ok(Math.abs(dimensions[other] - before[other]) < 1e-7, 'Single-axis scaling changed another axis')
+      assert.ok(Math.abs(model().position.x - position.x) < 1e-7 && Math.abs(model().position.z - position.z) < 1e-7)
+      assert.ok(Math.abs(model().position.y - dimensions[1] / 2) < 1e-7, 'Axis scaling lifted the furniture off the floor')
+    }
+    const bounds = new Box3().setFromObject(model())
+    await act(async () => { await renderer.fireEvent(handle, 'pointerUp', eventAt(click)) })
+    await refresh()
+    const after = new Box3().setFromObject(model())
+    assert.ok(bounds.min.distanceTo(after.min) < 1e-6 && bounds.max.distanceTo(after.max) < 1e-6, 'Single-axis scale jumped on release')
+  }
   for (let cycle = 0; cycle < 9; cycle++) {
     await refresh()
     const handle = scaleHandles[0]
@@ -89,7 +119,7 @@ try {
   await act(async () => useRoomCanvasStore.getState().setMode('play'))
   assert.equal(handlers().length, 0)
   assert.deepEqual(useRoomCanvasStore.getState().furnitureList[0].size, scaled.size)
-  console.log('PASS: actual furniture + one uniform scale handle, 9 enlarging/shrinking drags, proportional dimensions and limits, fixed floor contact, stable release, original baseline, move controls, polling and Play persistence.')
+  console.log('PASS: simultaneous X/Y/Z + diagonal uniform handles, 15 enlarging/shrinking drags, independent axes and proportional scaling, limits, grounded stable release, original baseline, movement, polling and Play persistence.')
 } finally {
   if (renderer) await renderer.unmount()
   globalThis.requestAnimationFrame = originalRaf

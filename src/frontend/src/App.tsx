@@ -3,8 +3,10 @@ import { SceneCanvas } from './scene/SceneCanvas'
 import { HudLayout } from './components/HudLayout'
 import { useScanSync } from './state/useScanSync'
 import { useSolarScanSync } from './state/useSolarScanSync'
+import { useRoomDraftSync } from './state/useRoomDraftSync'
 
 export default function App() {
+  useRoomDraftSync()
   useScanSync()
   useSolarScanSync()
   const [toast, setToast] = useState<string | null>(null)

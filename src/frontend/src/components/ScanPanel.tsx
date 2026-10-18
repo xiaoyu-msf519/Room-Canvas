@@ -9,6 +9,7 @@ export function ScanPanel({ onToast }: { onToast: (message: string) => void }) {
   const scan = useRoomCanvasStore((state) => state.scan)
   const applyScan = useRoomCanvasStore((state) => state.applyScan)
   const setSelectedId = useRoomCanvasStore((state) => state.setSelectedId)
+  const deletedFurnitureIds = useRoomCanvasStore((state) => state.deletedFurnitureIds)
   const [busy, setBusy] = useState(false)
   const [uploadPercent, setUploadPercent] = useState<number | null>(null)
   const zipInput = useRef<HTMLInputElement>(null)
@@ -90,7 +91,7 @@ export function ScanPanel({ onToast }: { onToast: (message: string) => void }) {
       {!isExample && <button className="scan-cache-download" type="button" title="下载可随扫描目录迁移的模型缓存" onClick={() => window.location.assign(`/api/scenes/${scan.id}/cache`)}><Download size={13} />导出房间缓存</button>}
       {!isExample && (!scan.pipeline?.autoReconstruct || retryable) && <button className="scan-reconstruct" type="button" disabled={busy || active} onClick={() => void request(`/api/scenes/${scan.id}/reconstruct`)}><WandSparkles size={14} />{retryable ? '重试失败任务' : complete === scan.furniture.length ? '重建完成' : '继续家具重建'}</button>}
       <div className="scan-furniture-list">
-        {scan.furniture.map((item) => <div key={item.id}><div className="scan-furniture-row">
+        {scan.furniture.filter((item) => !deletedFurnitureIds.includes(item.id)).map((item) => <div key={item.id}><div className="scan-furniture-row">
           <button className="scan-object" type="button" onClick={() => setSelectedId(item.id)}>
             {item.cropUrl && <img src={item.cropUrl} alt={item.name} />}
             <span><strong>{item.name}</strong><small title={item.error ?? item.stageMessage}>{item.generationStatus === 'succeeded' ? '已原位回填' : item.generationStatus === 'needs_review' ? '需补拍独立视角' : item.generationStatus === 'failed' ? '重建失败' : item.stageMessage ?? '等待自动处理'}</small></span>

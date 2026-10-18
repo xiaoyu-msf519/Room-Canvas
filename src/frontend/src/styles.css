@@ -53,6 +53,11 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--cyan); outl
 .furniture-readout dl { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin: 9px 0 0; }
 .furniture-readout dt { color: #819ba4; font-size: 9px; margin-bottom: 4px; }
 .furniture-readout dd { margin: 0; overflow-wrap: anywhere; }
+.furniture-actions { position: absolute; bottom: 244px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; max-width: min(360px, calc(100vw - 32px)); padding: 6px 8px 6px 12px; border-radius: 4px; pointer-events: auto; }
+.furniture-actions > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.furniture-actions button { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border: 1px solid rgba(255,131,125,.3); border-radius: 3px; background: rgba(255,131,125,.08); color: var(--danger); cursor: pointer; }
+.furniture-actions button:hover { background: rgba(255,131,125,.17); }
+.furniture-actions button:disabled { opacity: .4; cursor: default; }
 .mobile-connect-button { width: 100%; margin-top: 8px; }
 .mobile-connection-dialog { width: min(440px, calc(100vw - 32px)); border: 1px solid #48565e; border-radius: 6px; color: #e7edf0; background: #172026; padding: 18px; }
 .mobile-connection-dialog::backdrop { background: rgba(0, 0, 0, .55); }

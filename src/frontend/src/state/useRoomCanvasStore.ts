@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import type { FurnitureItem, SceneCollider, SceneManifest, UploadedAsset, Vec3 } from '../types/scene'
+import { readRoomDraft, saveRoomDraft } from './roomDrafts'
+import { readRoomSession, rememberRoomSession } from './roomDraftSession'
 
 export type RoomMode = 'edit' | 'play'
 
@@ -7,6 +9,7 @@ interface RoomCanvasState {
   mode: RoomMode
   showWireframe: boolean
   furnitureList: FurnitureItem[]
+  deletedFurnitureIds: string[]
   roomColliders: SceneCollider[]
   scan: SceneManifest | null
   applyScan: (scan: SceneManifest) => void
@@ -26,31 +29,40 @@ interface RoomCanvasState {
   removeUploadedAsset: (id: string) => void
   addFurniture: (item: FurnitureItem) => void
   updateFurniture: (id: string, patch: Partial<FurnitureItem>) => void
+  removeFurniture: (id: string) => void
   setDraggingAssetId: (id: string | null) => void
   setPlacementPreview: (position: Vec3 | null) => void
 }
 
+const session = readRoomSession()
+const emptyDraft = session ? null : readRoomDraft('empty')
+
 export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
   mode: 'edit',
   showWireframe: true,
-  furnitureList: [],
+  furnitureList: emptyDraft?.furniture ?? [],
+  deletedFurnitureIds: [],
   roomColliders: [],
   scan: null,
   applyScan: (scan) => set((state) => {
     const sameScene = state.scan?.id === scan.id
     if (sameScene && JSON.stringify(state.scan) === JSON.stringify(scan)) return state
-    const originals = scan.furniture.map((item) => {
-      const current = sameScene ? state.furnitureList.find((entry) => entry.id === item.id) : null
+    if (!sameScene) saveRoomDraft(state.scan?.id ?? 'empty', state.furnitureList, state.deletedFurnitureIds)
+    const draft = sameScene ? null : readRoomDraft(scan.id)
+    const savedFurniture = sameScene ? state.furnitureList : draft?.furniture ?? []
+    const deletedFurnitureIds = sameScene ? state.deletedFurnitureIds : draft?.deletedFurnitureIds ?? []
+    const originals = scan.furniture.filter((item) => !deletedFurnitureIds.includes(item.id)).map((item) => {
+      const current = savedFurniture.find((entry) => entry.id === item.id)
       if (!current) return { ...item, originalSize: item.originalSize ?? item.originalBounds?.size ?? [...item.size] }
       const merged = { ...item, position: current.position, rotation: current.rotation, size: current.size, originalSize: current.originalSize ?? item.originalSize ?? item.originalBounds?.size ?? [...item.size] }
       return JSON.stringify(merged) === JSON.stringify(current) ? current : merged
     })
-    const nextFurniture = [...originals, ...(sameScene ? state.furnitureList.filter((item) => item.kind === 'imported') : [])]
+    const nextFurniture = [...originals, ...savedFurniture.filter((item) => item.kind === 'imported')]
     const furnitureList = nextFurniture.length === state.furnitureList.length && nextFurniture.every((item, index) => item === state.furnitureList[index]) ? state.furnitureList : nextFurniture
     const room = sameScene && JSON.stringify(state.scan?.room) === JSON.stringify(scan.room) ? state.scan!.room : scan.room
     return {
       scan: room === scan.room ? scan : { ...scan, room }, roomColliders: room.colliders ?? [],
-      furnitureList,
+      furnitureList, deletedFurnitureIds,
       ...(sameScene ? {} : { mode: 'edit', selectedId: null, selectedSurfaceId: null }),
     }
   }),
@@ -70,10 +82,26 @@ export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
   removeUploadedAsset: (id) => set((state) => ({ uploadedAssets: state.uploadedAssets.filter((asset) => asset.id !== id) })),
   addFurniture: (item) => set((state) => ({ furnitureList: [...state.furnitureList, { ...item, originalSize: item.originalSize ?? item.originalBounds?.size ?? [...item.size] }] })),
   updateFurniture: (id, patch) => set((state) => ({ furnitureList: state.furnitureList.map((item) => item.id === id ? { ...item, ...patch } : item) })),
+  removeFurniture: (id) => set((state) => {
+    if (state.mode !== 'edit' || state.isTransforming || !state.furnitureList.some((item) => item.id === id)) return state
+    return {
+      furnitureList: state.furnitureList.filter((item) => item.id !== id),
+      deletedFurnitureIds: [...new Set([...state.deletedFurnitureIds, id])],
+      selectedId: state.selectedId === id ? null : state.selectedId,
+    }
+  }),
   setDraggingAssetId: (draggingAssetId) => set({ draggingAssetId, placementPreview: null }),
   setPlacementPreview: (placementPreview) => set((state) => {
     if (!placementPreview || !state.placementPreview) return { placementPreview }
     const same = Math.abs(state.placementPreview[0] - placementPreview[0]) < 0.01 && Math.abs(state.placementPreview[2] - placementPreview[2]) < 0.01
     return same ? state : { placementPreview }
   }),
+  ...session,
+  ...(session ? { deletedFurnitureIds: session.deletedFurnitureIds ?? [] } : {}),
 }))
+
+if (import.meta.hot) import.meta.hot.dispose(() => {
+  const state = useRoomCanvasStore.getState()
+  rememberRoomSession(state)
+  saveRoomDraft(state.scan?.id ?? 'empty', state.furnitureList, state.deletedFurnitureIds)
+})

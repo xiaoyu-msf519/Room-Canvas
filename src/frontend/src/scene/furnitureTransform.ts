@@ -16,8 +16,14 @@ export function furnitureDimensions(size: Vec3, original: Vec3, scale: Vector3) 
   return { dimensions, factors }
 }
 
-export function clampFurnitureScale(scale: Vector3, size: Vec3, original: Vec3) {
-  // The sole Y handle drives a common multiplier, including at size limits.
+export function clampFurnitureScale(scale: Vector3, size: Vec3, original: Vec3, axis?: 0 | 1 | 2) {
+  if (axis !== undefined) {
+    const minimum = 0.05 * original[axis] / Math.max(size[axis], 0.0001)
+    const maximum = 20 * original[axis] / Math.max(size[axis], 0.0001)
+    return scale.setComponent(axis, Math.max(minimum, Math.min(maximum, scale.getComponent(axis))))
+  }
+  // Uniform scaling preserves the current aspect ratio, including after an
+  // individual axis has been stretched and at the original-size limits.
   const minimum = Math.max(...size.map((value, axis) => 0.05 * original[axis] / Math.max(value, 0.0001)))
   const maximum = Math.min(...size.map((value, axis) => 20 * original[axis] / Math.max(value, 0.0001)))
   return scale.setScalar(Math.max(minimum, Math.min(maximum, scale.y)))

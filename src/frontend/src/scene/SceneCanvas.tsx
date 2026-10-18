@@ -48,7 +48,7 @@ export function SceneCanvas() {
       ? floorTriangles.map((triangle) => raycaster.ray.intersectTriangle(triangle.a, triangle.b, triangle.c, false, new Vector3())).find(Boolean)
       : raycaster.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), 0), new Vector3())
     if (!point) return null
-    return [Math.max(placeBounds?.min[0] ?? -4.8, Math.min(placeBounds?.max[0] ?? 4.8, point.x)), 0, Math.max(placeBounds?.min[2] ?? -4.8, Math.min(placeBounds?.max[2] ?? 4.8, point.z))] as [number, number, number]
+    return [Math.max(placeBounds?.min[0] ?? -39.8, Math.min(placeBounds?.max[0] ?? 39.8, point.x)), 0, Math.max(placeBounds?.min[2] ?? -39.8, Math.min(placeBounds?.max[2] ?? 39.8, point.z))] as [number, number, number]
   }
 
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {

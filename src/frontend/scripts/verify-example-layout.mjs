@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import React from 'react'
-import { create } from '@react-three/test-renderer'
+import { act, create } from '@react-three/test-renderer'
 import { createServer } from 'vite'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -69,6 +69,13 @@ try {
   assert.equal(floors.length, 6)
   assert.equal(ceilings.length, 6)
   assert.ok(ceilings.every((node) => node.instance.position.y === 2.8))
+  const ceilingInstances = ceilings.map((node) => node.instance)
+  assert.ok(ceilingInstances.every((mesh) => !mesh.visible && !mesh.castShadow), 'Edit must have no visible ceiling or ceiling shadow')
+  await act(async () => useRoomCanvasStore.getState().setMode('play'))
+  assert.ok(ceilingInstances.every((mesh) => mesh.visible && mesh.castShadow && mesh.receiveShadow && !mesh.material.transparent && mesh.material.opacity === 1), 'Play must restore a solid ceiling and its shadows')
+  assert.deepEqual(renderer.scene.findAll((node) => node.instance.name === 'scan-ceiling').map((node) => node.instance), ceilingInstances, 'Mode switching must reuse ceiling meshes')
+  await act(async () => useRoomCanvasStore.getState().setMode('edit'))
+  assert.ok(ceilingInstances.every((mesh) => !mesh.visible && !mesh.castShadow), 'Returning to Edit must hide the ceiling again')
   assert.ok(renderer.scene.findAll((node) => node.instance.name === 'scan-wall').length > 0)
   renderer.scene.instance.updateMatrixWorld(true)
   const wallMeshes = renderer.scene.findAll((node) => node.instance.name === 'scan-wall').map((node) => node.instance)
@@ -95,6 +102,7 @@ try {
   }
   console.log(`PASS: 3 bedrooms, living, 2 bathrooms; ${reachable.size} traversable 10cm cells, every internal doorway clear, ensuite reachable only through master; actual walls/floors/ceilings and empty scene isolation.`)
   console.log('PASS: 7 real window apertures (63 rays), preserved sills and glass collision, transparent sunlit panes and a single batched frame mesh.')
+  console.log('PASS: Edit hides ceiling and shadows, Play restores opaque ceilings, mode switches retain existing mesh instances.')
 } finally {
   if (renderer) await renderer.unmount()
   await vite.close()

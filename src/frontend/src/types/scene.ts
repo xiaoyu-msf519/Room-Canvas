@@ -74,6 +74,12 @@ export interface SceneManifest {
     surfaces: RoomSurface[]
     min: Vec3
     max: Vec3
+    layout?: {
+      templateId: string
+      spawn: Vec3
+      zones: Array<{ id: string; name: string; kind: 'living' | 'bedroom' | 'bathroom'; rect: [number, number, number, number]; center: Vec3; area: number }>
+      doorways: Array<SceneCollider & { id: string; kind: 'doorway'; wallId: string; connects: [string, string] }>
+    }
   }
   furniture: FurnitureItem[]
   cameras: Array<{
@@ -90,7 +96,7 @@ export interface SceneManifest {
     materialTarget?: 'wall' | 'floor'
     photometry?: { exposureDurationSeconds?: number; exposureOffset?: number; ambientColorTemperatureKelvin?: number }
   }>
-  source: { worldOffset: Vec3; coordinateSystem: string; matrixLayout: string; scanId: string; orientation?: {
+  source: { kind?: 'example-layout'; templateId?: string; worldOffset: Vec3; coordinateSystem: string; matrixLayout: string; scanId: string; orientation?: {
     reference: 'true-north' | 'magnetic-north'
     northInWorld: Vec3
     northAngleDegrees?: number

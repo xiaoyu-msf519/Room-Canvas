@@ -12,6 +12,7 @@
     "verify:walls": "node scripts/verify-wall-visibility.mjs",
     "verify:finishes": "node scripts/verify-surface-finishes.mjs",
     "verify:performance": "node scripts/verify-scene-performance.mjs",
+    "verify:example": "node scripts/verify-example-layout.mjs",
     "verify:solar": "node scripts/verify-solar.mjs",
     "preview": "vite preview"
   },

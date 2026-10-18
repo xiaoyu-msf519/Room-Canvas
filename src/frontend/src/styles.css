@@ -47,6 +47,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid var(--cyan); outl
 .scan-orientation { margin-top: 8px; font-size: 11px; color: #98b1b9; }
 .scan-room-select { width: 100%; min-width: 0; margin-top: 9px; height: 30px; color: #c4d5d9; background: #263035; border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; font-size: 11px; }
 .scan-cache-download { width: 100%; margin-top: 8px; }
+.scan-example-button { width: 100%; margin-top: 8px; }
 .mobile-connect-button { width: 100%; margin-top: 8px; }
 .mobile-connection-dialog { width: min(440px, calc(100vw - 32px)); border: 1px solid #48565e; border-radius: 6px; color: #e7edf0; background: #172026; padding: 18px; }
 .mobile-connection-dialog::backdrop { background: rgba(0, 0, 0, .55); }

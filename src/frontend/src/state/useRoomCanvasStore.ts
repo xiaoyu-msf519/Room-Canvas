@@ -45,7 +45,7 @@ export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
       const merged = { ...item, position: current.position, rotation: current.rotation, size: current.size }
       return JSON.stringify(merged) === JSON.stringify(current) ? current : merged
     })
-    const nextFurniture = [...originals, ...state.furnitureList.filter((item) => item.kind === 'imported')]
+    const nextFurniture = [...originals, ...(sameScene ? state.furnitureList.filter((item) => item.kind === 'imported') : [])]
     const furnitureList = nextFurniture.length === state.furnitureList.length && nextFurniture.every((item, index) => item === state.furnitureList[index]) ? state.furnitureList : nextFurniture
     const room = sameScene && JSON.stringify(state.scan?.room) === JSON.stringify(scan.room) ? state.scan!.room : scan.room
     return {

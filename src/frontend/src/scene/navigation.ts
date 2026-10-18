@@ -6,6 +6,7 @@ import type { RoomSurface, SceneCollider } from '../types/scene'
 export const EYE_HEIGHT = 1.5
 export const WALK_LIMIT = 9.7
 const PLAYER_RADIUS = 0.25
+const FLOOR_EDGE_EPSILON = 1e-8
 
 export function captureEditorView(camera: Camera, target: Vector3) {
   return {
@@ -51,7 +52,12 @@ export function createWalkFloor(surfaces: RoomSurface[]): Triangle[] {
 
 export function canStandAt(x: number, z: number, obstacles: OBB[], floor: Triangle[] = []) {
   if (floor.length) {
-    if (!floor.some((triangle) => triangle.containsPoint(new Vector3(x, 0, z)))) return false
+    const point = new Vector3(x, 0, z), barycentric = new Vector3()
+    // Adjacent transformed floor polygons must agree at a shared doorway seam.
+    if (!floor.some((triangle) => {
+      const coordinates = triangle.getBarycoord(point, barycentric)
+      return coordinates !== null && coordinates.x >= -FLOOR_EDGE_EPSILON && coordinates.y >= -FLOOR_EDGE_EPSILON && coordinates.z >= -FLOOR_EDGE_EPSILON
+    })) return false
   } else if (Math.abs(x) > WALK_LIMIT || Math.abs(z) > WALK_LIMIT) return false
   // Test the body volume, not just the eye point: low furniture also blocks walking.
   const body = new Box3(

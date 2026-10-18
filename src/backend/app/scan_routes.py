@@ -8,6 +8,7 @@ import socket
 import shutil
 import uuid
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -21,6 +22,7 @@ from .scans import adapt_scan, read_json, safe_path, write_json
 from .surface_materials import apply_finishes
 from .mobile_config import public_endpoint, upload_token
 from .mobile_ingest import MAX_SCAN_BYTES
+from .example_layout import create_example_layout
 
 
 def register_scan_routes(app: FastAPI, root: Path, start_generation, read_generation) -> None:
@@ -343,12 +345,40 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
                                  "status": "invalid", "objectCount": 0, "cachedModels": 0, "hasCache": False}, bundle))
         return sorted(entries, key=lambda entry: entry[0].get("createdAt", ""), reverse=True)
 
+    def example_entries() -> list[dict]:
+        entries = []
+        for path in scenes_root.glob("*/scene-manifest.json"):
+            try:
+                scene = read_json(path)
+                if scene.get("source", {}).get("kind") != "example-layout":
+                    continue
+                entries.append({"id": scene["id"], "scanId": scene["source"]["scanId"], "sceneId": scene["id"], "kind": "example-layout",
+                                "title": scene["title"], "folder": "", "status": "complete", "objectCount": 0, "cachedModels": 0,
+                                "hasCache": False, "createdAt": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()})
+            except (OSError, ValueError, KeyError):
+                continue
+        return sorted(entries, key=lambda entry: entry["createdAt"], reverse=True)
+
+    @app.post("/api/room-library/examples/three-bedroom", status_code=201)
+    async def generate_example_layout() -> dict:
+        async with import_lock:
+            scene = create_example_layout(uuid.uuid4().hex)
+            write_json(scene_path(scene["id"]), scene)
+            write_json(scenes_root / "latest.json", {"id": scene["id"]})
+        return scene
+
     @app.get("/api/room-library")
     async def room_library() -> dict:
-        return {"rooms": [entry for entry, _ in await asyncio.to_thread(library_entries)]}
+        scans, examples = await asyncio.gather(asyncio.to_thread(library_entries), asyncio.to_thread(example_entries))
+        return {"rooms": examples + [entry for entry, _ in scans]}
 
     @app.post("/api/room-library/{room_id}/load")
     async def load_library_room(room_id: str, auto_reconstruct: bool = True) -> dict:
+        example = next((entry for entry in await asyncio.to_thread(example_entries) if entry["id"] == room_id), None)
+        if example:
+            scene = load(example["sceneId"])
+            write_json(scenes_root / "latest.json", {"id": scene["id"]})
+            return refresh(scene)
         entry = next(((entry, bundle) for entry, bundle in await asyncio.to_thread(library_entries) if entry["id"] == room_id), None)
         if entry is None:
             raise HTTPException(404, "房间不存在")
@@ -410,6 +440,8 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
     @app.get("/api/scenes/{scene_id}/cache")
     async def download_scene_cache(scene_id: str) -> FileResponse:
         scene = refresh(load(scene_id))
+        if scene.get("source", {}).get("kind") == "example-layout":
+            raise HTTPException(409, "示例户型没有扫描模型缓存")
         if not scene.get("importFingerprint"):
             _, fingerprint, _ = await asyncio.to_thread(bundle_inventory, bundle_path(scene))
             scene["importFingerprint"] = fingerprint
@@ -436,6 +468,8 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
     @app.post("/api/scenes/{scene_id}/reconstruct", status_code=202)
     async def reconstruct_scene(scene_id: str) -> dict:
         scene = refresh(load(scene_id))
+        if scene.get("source", {}).get("kind") == "example-layout":
+            raise HTTPException(409, "示例户型仅包含结构，没有需要重建的家具")
         retry_ids = {item["id"] for item in scene["furniture"] if item.get("generationStatus") in ("failed", "needs_review")}
         schedule(scene, True, retry_ids)
         return refresh(load(scene_id))

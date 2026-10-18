@@ -22,7 +22,12 @@ try {
   const { useSurfaceFinishStore, surfaceGroupId } = await vite.ssrLoadModule('/src/state/useSurfaceFinishStore.ts')
   const { ScannedRoom } = await vite.ssrLoadModule('/src/scene/ScannedRoom.tsx')
   const targets = editableSurfaces(scene.room.surfaces)
-  assert.equal(new Set(targets.filter((surface) => surface.kind === 'floor').map(surfaceGroupId)).size, 6)
+  assert.equal(new Set(targets.filter((surface) => surface.kind === 'floor').map(surfaceGroupId)).size, scene.room.layout.zones.length)
+  const targetById = new Map(targets.map((surface) => [surface.id, surface]))
+  for (const zone of scene.room.layout.zones) {
+    assert.equal(targetById.get(zone.floorSurfaceId)?.zoneId, zone.id)
+    assert.ok(zone.wallSurfaceIds.every((id) => targetById.get(id)?.zoneId === zone.id), 'Explicit room wall IDs must resolve to independent editable surfaces')
+  }
   for (const zone of scene.room.layout.zones) assert.equal(new Set(targets.filter((surface) => surface.kind === 'wall' && surface.zoneId === zone.id).map(surfaceGroupId)).size, 4, `${zone.name} needs four independent wall faces`)
   const shared = scene.room.surfaces.find((surface) => surface.wallFaces && surface.wallFaces.positive.zoneId !== surface.wallFaces.negative.zoneId)
   const positive = wallFaceSurface(shared, 'positive'), negative = wallFaceSurface(shared, 'negative')
@@ -56,7 +61,7 @@ try {
   await act(async () => useSurfaceFinishStore.getState().setFinish(scene.id, surfaceGroupId(positive), null))
   assert.equal(source.instance.material[1].map, null)
   assert.ok(source.instance.material[2].map, 'Resetting one room must not reset its neighbor')
-  console.log('PASS: six independent floors, four wall faces per room, separate shared-wall sides, click targeting, Edit/Play material reuse, legacy paint migration and independent reset.')
+  console.log('PASS: nine independent floors with explicit room surface IDs, four wall groups per room, separate shared-wall sides, click targeting, Edit/Play reuse, legacy paint migration and independent reset.')
 } finally {
   if (renderer) await renderer.unmount()
   TextureLoader.prototype.load = originalLoad

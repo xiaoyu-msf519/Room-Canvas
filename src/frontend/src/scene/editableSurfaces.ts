@@ -2,7 +2,7 @@ import type { RoomSurface } from '../types/scene'
 
 export function wallFaceSurface(surface: RoomSurface, side: 'positive' | 'negative'): RoomSurface {
   const face = surface.wallFaces?.[side]
-  return face ? { ...surface, ...face, id: `${surface.id}:${side}`, wallFaces: undefined } : surface
+  return face ? { ...surface, ...face, id: face.id ?? `${surface.id}:${side}`, wallFaces: undefined } : surface
 }
 
 export function editableSurfaces(surfaces: RoomSurface[]): RoomSurface[] {
@@ -13,5 +13,6 @@ export function editableSurfaces(surfaces: RoomSurface[]): RoomSurface[] {
 
 export function wallSelectionId(surface: RoomSurface, materialIndex: number | undefined): string {
   if (!surface.wallFaces) return surface.id
-  return `${surface.id}:${materialIndex === 2 ? 'negative' : 'positive'}`
+  const side = materialIndex === 2 ? 'negative' : 'positive'
+  return surface.wallFaces[side].id ?? `${surface.id}:${side}`
 }

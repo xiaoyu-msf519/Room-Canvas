@@ -18,6 +18,7 @@ export interface RoomWindow extends SceneCollider {
   wallId: string
   zoneId: string
   privacy: boolean
+  enclosure?: boolean
 }
 
 export interface FurnitureItem extends SceneCollider {
@@ -39,6 +40,7 @@ export interface FurnitureItem extends SceneCollider {
 }
 
 export interface WallFace {
+  id?: string
   zoneId: string
   editGroupId: string
   label: string
@@ -96,7 +98,8 @@ export interface SceneManifest {
     layout?: {
       templateId: string
       spawn: Vec3
-      zones: Array<{ id: string; name: string; kind: 'living' | 'bedroom' | 'bathroom'; rect: [number, number, number, number]; center: Vec3; area: number }>
+      zones: Array<{ id: string; name: string; kind: 'living' | 'bedroom' | 'bathroom' | 'kitchen' | 'foyer' | 'balcony'; rect: [number, number, number, number]; center: Vec3; area: number; floorSurfaceId?: string; ceilingSurfaceId?: string; wallSurfaceIds?: string[]; wallGroupIds?: string[] }>
+      boundary?: Vec3[]
       doorways: Array<SceneCollider & { id: string; kind: 'doorway'; wallId: string; connects: [string, string] }>
       windows?: RoomWindow[]
     }

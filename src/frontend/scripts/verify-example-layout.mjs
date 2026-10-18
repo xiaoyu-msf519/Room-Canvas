@@ -21,7 +21,10 @@ try {
   assert.equal(zones.filter((zone) => zone.kind === 'bedroom').length, 3)
   assert.equal(zones.filter((zone) => zone.kind === 'bathroom').length, 2)
   assert.equal(zones.filter((zone) => zone.kind === 'living').length, 1)
-  assert.equal(zones.reduce((sum, zone) => sum + zone.area, 0), 120)
+  assert.equal(zones.filter((zone) => zone.kind === 'kitchen').length, 1)
+  assert.equal(zones.filter((zone) => zone.kind === 'foyer').length, 1)
+  assert.equal(zones.filter((zone) => zone.kind === 'balcony').length, 1)
+  assert.ok(Math.abs(zones.reduce((sum, zone) => sum + zone.area, 0) - 96.2) < 1e-6)
   const master = zones.find((zone) => zone.id === 'master'), ensuite = zones.find((zone) => zone.id === 'bath-ensuite')
   assert.equal(master.rect[1], ensuite.rect[3])
   assert.ok(Math.min(master.rect[2], ensuite.rect[2]) > Math.max(master.rect[0], ensuite.rect[0]))
@@ -41,12 +44,13 @@ try {
     }
   }
   function flood(colliders) {
-    const visited = new Set(['0,0']), queue = [[0, 0]]
+    const start = [Math.round(spawn.x * 10), Math.round(spawn.z * 10)]
+    const visited = new Set([start.join(',')]), queue = [start]
     for (let index = 0; index < queue.length; index++) {
       const [x, z] = queue[index]
       for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
         const nx = x + dx, nz = z + dz, key = `${nx},${nz}`
-        if (Math.abs(nx) > 60 || Math.abs(nz) > 50 || visited.has(key) || !canStandAt(nx / 10, nz / 10, colliders, floor)) continue
+        if (nx < scene.room.min[0] * 10 || nx > scene.room.max[0] * 10 || nz < scene.room.min[2] * 10 || nz > scene.room.max[2] * 10 || visited.has(key) || !canStandAt(nx / 10, nz / 10, colliders, floor)) continue
         visited.add(key); queue.push([nx, nz])
       }
     }
@@ -58,6 +62,13 @@ try {
   assert.ok(!blockedSuite.has(`${Math.round(ensuite.center[0] * 10)},${Math.round(ensuite.center[2] * 10)}`), 'Ensuite has an unintended second entrance')
   assert.ok(blockedSuite.has(`${Math.round(master.center[0] * 10)},${Math.round(master.center[2] * 10)}`))
   assert.equal(canStandAt(7, 0, obstacles, floor), false)
+  assert.equal(canStandAt(5, -4, obstacles, floor), false, 'Northeast setback must not be filled with an invisible floor')
+  assert.equal(canStandAt(-5, 1.65, obstacles, floor), false, 'Recess between kitchen and balcony must remain outdoors')
+  assert.equal(canStandAt(-2, 5.3, obstacles, floor), true, 'Projecting foyer is missing from the navigable floor')
+  assert.equal(canStandAt(-4.4, 2.9, obstacles, floor), true, 'Enclosed balcony is not walkable')
+  for (const zone of zones.filter((zone) => zone.kind === 'bedroom' || zone.kind === 'kitchen')) assert.ok(windows.some((window) => window.zoneId === zone.id))
+  assert.ok(!windows.some((window) => window.zoneId === 'foyer'))
+  assert.equal(windows.filter((window) => window.zoneId === 'balcony' && window.enclosure).length, 3)
   useRoomCanvasStore.getState().applyScan({ ...scene, id: 'prior-room' })
   useRoomCanvasStore.getState().addFurniture({ id: 'prior-import', kind: 'imported', name: 'old furniture', position: [0,1,0], size: [1,2,1], rotation: [0,0,0,1] })
   useRoomCanvasStore.getState().applyScan(scene)
@@ -66,8 +77,9 @@ try {
   await renderer.advanceFrames(35, 1 / 60)
   const floors = renderer.scene.findAll((node) => node.instance.name === 'scan-floor')
   const ceilings = renderer.scene.findAll((node) => node.instance.name === 'scan-ceiling')
-  assert.equal(floors.length, 6)
-  assert.equal(ceilings.length, 6)
+  assert.equal(floors.length, zones.length)
+  assert.equal(ceilings.length, zones.length)
+  assert.equal(new Set(floors.map((node) => node.instance.userData.surfaceId)).size, zones.length)
   assert.ok(ceilings.every((node) => node.instance.position.y === 2.8))
   const ceilingInstances = ceilings.map((node) => node.instance)
   assert.ok(ceilingInstances.every((mesh) => !mesh.visible && !mesh.castShadow), 'Edit must have no visible ceiling or ceiling shadow')
@@ -80,28 +92,28 @@ try {
   renderer.scene.instance.updateMatrixWorld(true)
   const wallMeshes = renderer.scene.findAll((node) => node.instance.name === 'scan-wall').map((node) => node.instance)
   const panes = renderer.scene.findAll((node) => node.instance.name === 'room-window-glass')
-  assert.equal(windows.length, 7)
+  assert.equal(windows.length, 11)
   assert.equal(panes.length, windows.length)
   assert.equal(renderer.scene.findAll((node) => node.instance.name === 'room-window-frames').length, 1, 'Window frames must be batched')
   assert.ok(panes.every((node) => !node.instance.castShadow && node.instance.material.transparent), 'Glass must let sunlight through')
   const raycaster = new Raycaster()
-  raycaster.far = 1
+  raycaster.far = 0.24
   for (const window of windows) {
     const rotation = new Quaternion(...window.rotation), center = new Vector3(...window.position)
     const normal = new Vector3(0, 0, 1).applyQuaternion(rotation)
     for (const u of [-0.3, 0, 0.3]) for (const v of [-0.25, 0, 0.25]) {
       const point = new Vector3(u * window.size[0], v * window.size[1], 0).applyQuaternion(rotation).add(center)
-      raycaster.set(point.clone().addScaledVector(normal, -0.4), normal)
+      raycaster.set(point.clone().addScaledVector(normal, -0.12), normal)
       assert.equal(raycaster.intersectObjects(wallMeshes, false).length, 0, `${window.id} has a wall blocking its aperture`)
     }
     const sill = center.y - window.size[1] / 2
-    raycaster.set(new Vector3(center.x, sill - 0.2, center.z).addScaledVector(normal, -0.4), normal)
+    raycaster.set(new Vector3(center.x, Math.max(0.02, sill / 2), center.z).addScaledVector(normal, -0.12), normal)
     assert.ok(raycaster.intersectObjects(wallMeshes, false).length > 0, `${window.id} has no solid sill`)
     assert.ok(obstacles.some((obstacle) => obstacle.containsPoint(center)), 'Closed glass needs a collision pane')
     assert.equal(canStandAt(center.x, center.z, obstacles, floor), false, 'A window must not become a walk-through opening')
   }
-  console.log(`PASS: 3 bedrooms, living, 2 bathrooms; ${reachable.size} traversable 10cm cells, every internal doorway clear, ensuite reachable only through master; actual walls/floors/ceilings and empty scene isolation.`)
-  console.log('PASS: 7 real window apertures (63 rays), preserved sills and glass collision, transparent sunlit panes and a single batched frame mesh.')
+  console.log(`PASS: 3 bedrooms, living, 2 bathrooms, kitchen, projecting foyer and enclosed balcony; ${reachable.size} traversable 10cm cells, every doorway clear, private ensuite, outdoor recesses preserved, nine independent floors/ceilings and empty furniture.`)
+  console.log('PASS: 11 real window apertures (99 rays), 3 glazed balcony sides, no foyer windows, bedroom/kitchen windows, preserved sills/glass collision and a single batched frame mesh.')
   console.log('PASS: Edit hides ceiling and shadows, Play restores opaque ceilings, mode switches retain existing mesh instances.')
 } finally {
   if (renderer) await renderer.unmount()

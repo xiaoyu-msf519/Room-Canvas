@@ -8,7 +8,7 @@ import { createWallTransparency } from './wallTransparency'
 import { surfaceGroupId, useSurfaceFinishStore, type SurfaceFinish } from '../state/useSurfaceFinishStore'
 import { createMetricWallGeometry, useSurfaceAppearance } from './surfaceAppearance'
 import { RoomWindows } from './RoomWindows'
-import { editableSurfaces, wallFaceSurface, wallSelectionId } from './editableSurfaces'
+import { editableSurfaces, wallFaceSurface, wallSelectionId, wallSideSurface } from './editableSurfaces'
 import { trimWallJunctions } from './wallJunctions'
 
 function selectSurface(event: ThreeEvent<MouseEvent>, id: string) {
@@ -45,17 +45,19 @@ function FaceAppearance({ surface, materials, finish, selected }: { surface: Roo
 function WallAppearance({ wall, reference, finishes, selectedGroup, edit }: { wall: ReturnType<typeof createWallVisuals>['walls'][number]; reference: RoomSurface; finishes?: Record<string, SurfaceFinish>; selectedGroup: string | null; edit: boolean }) {
   const { surface, material, opaqueMaterial } = wall
   const materials = useMemo(() => [material, opaqueMaterial], [material, opaqueMaterial])
-  useSurfaceAppearance(materials, surface, finishes?.[surfaceGroupId(surface)], !surface.wallFaces && edit && selectedGroup === surfaceGroupId(surface))
   const positive = useMemo(() => wallFaceSurface(surface, 'positive'), [surface])
   const negative = useMemo(() => wallFaceSurface(surface, 'negative'), [surface])
+  const side = useMemo(() => wallSideSurface(surface), [surface])
   const faceMaterials = useMemo(() => [[wall.blendSlots[1], wall.opaqueSlots[1]], [wall.blendSlots[2], wall.opaqueSlots[2]]], [wall])
+  const sideFinish = finishes?.[selectedGroup ?? ''] ?? finishes?.[surfaceGroupId(side)] ?? finishes?.[surfaceGroupId(positive)] ?? finishes?.[surfaceGroupId(negative)] ?? finishes?.[surfaceGroupId(surface)]
+  useSurfaceAppearance(materials, side, sideFinish, edit && selectedGroup === surfaceGroupId(side))
   const geometry = useMemo(() => createMetricWallGeometry(surface, reference), [surface, reference])
   useEffect(() => () => geometry.dispose(), [geometry])
   return <>
     {surface.wallFaces && <FaceAppearance surface={positive} materials={faceMaterials[0]} finish={finishes?.[surfaceGroupId(positive)]} selected={edit && selectedGroup === surfaceGroupId(positive)} />}
     {surface.wallFaces && surfaceGroupId(negative) !== surfaceGroupId(positive) && <FaceAppearance surface={negative} materials={faceMaterials[1]} finish={finishes?.[surfaceGroupId(negative)]} selected={edit && selectedGroup === surfaceGroupId(negative)} />}
-    <mesh name="scan-wall" userData={{ wallId: surface.id }} visible={!edit} material={surface.wallFaces ? wall.blendSlots : material} geometry={geometry} position={surface.position} quaternion={surface.rotation} receiveShadow castShadow />
-    <mesh name="scan-wall-solid" userData={{ wallId: surface.id }} ref={(mesh) => { wall.solid = mesh }} visible={edit && material.opacity === 1} material={surface.wallFaces ? wall.opaqueSlots : opaqueMaterial} geometry={geometry} position={surface.position} quaternion={surface.rotation} receiveShadow onClick={(event) => selectSurface(event, wallSelectionId(surface, event.face?.materialIndex))} />
+    <mesh name="scan-wall" userData={{ wallId: surface.id }} visible={!edit} material={wall.blendSlots} geometry={geometry} position={surface.position} quaternion={surface.rotation} receiveShadow castShadow />
+    <mesh name="scan-wall-solid" userData={{ wallId: surface.id }} ref={(mesh) => { wall.solid = mesh }} visible={edit && material.opacity === 1} material={wall.opaqueSlots} geometry={geometry} position={surface.position} quaternion={surface.rotation} receiveShadow onClick={(event) => selectSurface(event, wallSelectionId(surface, event.face?.materialIndex))} />
   </>
 }
 

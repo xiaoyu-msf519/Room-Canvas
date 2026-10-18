@@ -6,7 +6,7 @@ import type { Polygon } from 'three-csg-ts/lib/esm/Polygon.js'
 import type { RoomSurface } from '../types/scene'
 import { createMetricWallGeometry } from './surfaceAppearance'
 import { surfaceGroupId } from '../state/useSurfaceFinishStore'
-import { wallFaceSurface } from './editableSurfaces'
+import { wallFaceSurface, wallSideSurface } from './editableSurfaces'
 
 interface WallVisual {
   surface: RoomSurface
@@ -31,7 +31,7 @@ export function createWallTransparency(walls: WallVisual[]) {
     geometry.applyMatrix4(pose.matrix)
     const firstSlot = slots.length
     const materials = wall.blendSlots ?? [wall.material]
-    materials.forEach((material, index) => slots.push({ wall, material, surfaceId: wallFaceSurface(surface, index === 2 ? 'negative' : 'positive').id }))
+    materials.forEach((material, index) => slots.push({ wall, material, surfaceId: index === 0 ? wallSideSurface(surface).id : wallFaceSurface(surface, index === 2 ? 'negative' : 'positive').id }))
     geometry.groups.forEach((group) => { group.materialIndex = firstSlot + (surface.wallFaces ? group.materialIndex ?? 0 : 0) })
     const result = CSG.fromGeometry(geometry).toPolygons()
     geometry.dispose()

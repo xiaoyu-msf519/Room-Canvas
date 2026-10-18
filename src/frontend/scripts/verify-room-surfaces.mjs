@@ -17,7 +17,7 @@ TextureLoader.prototype.load = function (url, onLoad) { const texture = new Text
 const vite = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true }, appType: 'custom' })
 let renderer
 try {
-  const { editableSurfaces, wallFaceSurface } = await vite.ssrLoadModule('/src/scene/editableSurfaces.ts')
+  const { editableSurfaces, wallFaceSurface, wallSideSurface } = await vite.ssrLoadModule('/src/scene/editableSurfaces.ts')
   const { useRoomCanvasStore } = await vite.ssrLoadModule('/src/state/useRoomCanvasStore.ts')
   const { useSurfaceFinishStore, surfaceGroupId } = await vite.ssrLoadModule('/src/state/useSurfaceFinishStore.ts')
   const { ScannedRoom } = await vite.ssrLoadModule('/src/scene/ScannedRoom.tsx')
@@ -28,9 +28,13 @@ try {
     assert.equal(targetById.get(zone.floorSurfaceId)?.zoneId, zone.id)
     assert.ok(zone.wallSurfaceIds.every((id) => targetById.get(id)?.zoneId === zone.id), 'Explicit room wall IDs must resolve to independent editable surfaces')
   }
-  for (const zone of scene.room.layout.zones) assert.equal(new Set(targets.filter((surface) => surface.kind === 'wall' && surface.zoneId === zone.id).map(surfaceGroupId)).size, 4, `${zone.name} needs four independent wall faces`)
+  for (const zone of scene.room.layout.zones) {
+    assert.ok(targets.some((surface) => surface.kind === 'wall' && surface.zoneId === zone.id && surface.id.endsWith(':side')), `${zone.name} needs an independently editable wall side`)
+    assert.ok(new Set(targets.filter((surface) => surface.kind === 'wall' && surface.zoneId === zone.id && !surface.id.endsWith(':side')).map(surfaceGroupId)).size >= 4, `${zone.name} needs four independent wall faces`)
+  }
   const shared = scene.room.surfaces.find((surface) => surface.wallFaces && surface.wallFaces.positive.zoneId !== surface.wallFaces.negative.zoneId)
   const positive = wallFaceSurface(shared, 'positive'), negative = wallFaceSurface(shared, 'negative')
+  const side = wallSideSurface(shared)
   const finish = { catalogId: 'test', name: 'paint', textureUrl: '/test-paint.jpg', coverageMeters: [1,1], rotationDegrees: 0 }
   useRoomCanvasStore.getState().applyScan(scene)
   renderer = await create(React.createElement(ScannedRoom))
@@ -40,10 +44,15 @@ try {
   assert.equal(useRoomCanvasStore.getState().selectedSurfaceId, positive.id)
   await act(async () => useSurfaceFinishStore.getState().setFinish(scene.id, surfaceGroupId(positive), finish))
   assert.ok(source.instance.material[1].map)
+  assert.ok(source.instance.material[0].map, 'Wall side must receive its own selected finish')
   assert.equal(source.instance.material[2].map, null, 'Shared wall paint leaked into the next room')
   assert.equal(solid.instance.material[1].map.source, source.instance.material[1].map.source)
   await act(async () => { await renderer.fireEvent(solid, 'click', { delta: 0, face: { materialIndex: 2 }, stopPropagation() {} }) })
   assert.equal(useRoomCanvasStore.getState().selectedSurfaceId, negative.id)
+  await act(async () => { await renderer.fireEvent(solid, 'click', { delta: 0, face: { materialIndex: 0 }, stopPropagation() {} }) })
+  assert.equal(useRoomCanvasStore.getState().selectedSurfaceId, side.id)
+  await act(async () => useSurfaceFinishStore.getState().setFinish(scene.id, surfaceGroupId(side), { ...finish, catalogId: 'side' }))
+  assert.ok(source.instance.material[0].map, 'Side finish must be independently stored')
   const floor = scene.room.surfaces.find((surface) => surface.kind === 'floor' && surface.zoneId === 'master')
   await act(async () => useSurfaceFinishStore.getState().setFinish(scene.id, surfaceGroupId(floor), finish))
   const floors = renderer.scene.findAll((node) => node.instance.name === 'scan-floor')

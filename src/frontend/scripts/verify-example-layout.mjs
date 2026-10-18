@@ -13,11 +13,11 @@ const scene = JSON.parse(execFileSync(python, ['-c', "import sys,json; sys.path.
 const vite = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true }, appType: 'custom' })
 let renderer
 try {
-  const { Vector3, Quaternion } = await import('three')
+  const { Vector3, Quaternion, Raycaster } = await import('three')
   const { canStandAt, createWalkFloor, createWalkObstacles, findWalkSpawn } = await vite.ssrLoadModule('/src/scene/navigation.ts')
   const { useRoomCanvasStore } = await vite.ssrLoadModule('/src/state/useRoomCanvasStore.ts')
   const { ScannedRoom } = await vite.ssrLoadModule('/src/scene/ScannedRoom.tsx')
-  const { zones, doorways } = scene.room.layout
+  const { zones, doorways, windows } = scene.room.layout
   assert.equal(zones.filter((zone) => zone.kind === 'bedroom').length, 3)
   assert.equal(zones.filter((zone) => zone.kind === 'bathroom').length, 2)
   assert.equal(zones.filter((zone) => zone.kind === 'living').length, 1)
@@ -70,7 +70,31 @@ try {
   assert.equal(ceilings.length, 6)
   assert.ok(ceilings.every((node) => node.instance.position.y === 2.8))
   assert.ok(renderer.scene.findAll((node) => node.instance.name === 'scan-wall').length > 0)
+  renderer.scene.instance.updateMatrixWorld(true)
+  const wallMeshes = renderer.scene.findAll((node) => node.instance.name === 'scan-wall').map((node) => node.instance)
+  const panes = renderer.scene.findAll((node) => node.instance.name === 'room-window-glass')
+  assert.equal(windows.length, 7)
+  assert.equal(panes.length, windows.length)
+  assert.equal(renderer.scene.findAll((node) => node.instance.name === 'room-window-frames').length, 1, 'Window frames must be batched')
+  assert.ok(panes.every((node) => !node.instance.castShadow && node.instance.material.transparent), 'Glass must let sunlight through')
+  const raycaster = new Raycaster()
+  raycaster.far = 1
+  for (const window of windows) {
+    const rotation = new Quaternion(...window.rotation), center = new Vector3(...window.position)
+    const normal = new Vector3(0, 0, 1).applyQuaternion(rotation)
+    for (const u of [-0.3, 0, 0.3]) for (const v of [-0.25, 0, 0.25]) {
+      const point = new Vector3(u * window.size[0], v * window.size[1], 0).applyQuaternion(rotation).add(center)
+      raycaster.set(point.clone().addScaledVector(normal, -0.4), normal)
+      assert.equal(raycaster.intersectObjects(wallMeshes, false).length, 0, `${window.id} has a wall blocking its aperture`)
+    }
+    const sill = center.y - window.size[1] / 2
+    raycaster.set(new Vector3(center.x, sill - 0.2, center.z).addScaledVector(normal, -0.4), normal)
+    assert.ok(raycaster.intersectObjects(wallMeshes, false).length > 0, `${window.id} has no solid sill`)
+    assert.ok(obstacles.some((obstacle) => obstacle.containsPoint(center)), 'Closed glass needs a collision pane')
+    assert.equal(canStandAt(center.x, center.z, obstacles, floor), false, 'A window must not become a walk-through opening')
+  }
   console.log(`PASS: 3 bedrooms, living, 2 bathrooms; ${reachable.size} traversable 10cm cells, every internal doorway clear, ensuite reachable only through master; actual walls/floors/ceilings and empty scene isolation.`)
+  console.log('PASS: 7 real window apertures (63 rays), preserved sills and glass collision, transparent sunlit panes and a single batched frame mesh.')
 } finally {
   if (renderer) await renderer.unmount()
   await vite.close()

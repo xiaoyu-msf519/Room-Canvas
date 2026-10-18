@@ -7,6 +7,7 @@ import { createWallVisuals } from './wallVisibility'
 import { createWallTransparency } from './wallTransparency'
 import { surfaceGroupId, useSurfaceFinishStore, type SurfaceFinish } from '../state/useSurfaceFinishStore'
 import { createMetricWallGeometry, useSurfaceAppearance } from './surfaceAppearance'
+import { RoomWindows } from './RoomWindows'
 
 function selectSurface(event: ThreeEvent<MouseEvent>, id: string) {
   const state = useRoomCanvasStore.getState()
@@ -103,6 +104,7 @@ export function ScannedRoom() {
   const selectedSurface = scan.room.surfaces.find((surface) => surface.id === selectedId)
   const selectedGroup = selectedSurface ? surfaceGroupId(selectedSurface) : null
   return <group name="scanned-room">
+    {!!scan.room.layout?.windows?.length && <RoomWindows windows={scan.room.layout.windows} />}
     {scan.room.surfaces.filter((surface) => surface.kind === 'floor').map((surface) => <Floor key={surface.id} surface={surface} />)}
     {scan.room.surfaces.filter((surface) => surface.kind === 'ceiling').map((surface) => <Ceiling key={surface.id} surface={surface} edit={edit} />)}
     {visuals.walls.map((wall) => {

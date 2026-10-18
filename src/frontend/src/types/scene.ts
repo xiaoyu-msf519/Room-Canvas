@@ -12,6 +12,14 @@ export interface SceneCollider {
   rotation: Quaternion
 }
 
+export interface RoomWindow extends SceneCollider {
+  id: string
+  kind: 'window'
+  wallId: string
+  zoneId: string
+  privacy: boolean
+}
+
 export interface FurnitureItem extends SceneCollider {
   id: string
   name: string
@@ -79,6 +87,7 @@ export interface SceneManifest {
       spawn: Vec3
       zones: Array<{ id: string; name: string; kind: 'living' | 'bedroom' | 'bathroom'; rect: [number, number, number, number]; center: Vec3; area: number }>
       doorways: Array<SceneCollider & { id: string; kind: 'doorway'; wallId: string; connects: [string, string] }>
+      windows?: RoomWindow[]
     }
   }
   furniture: FurnitureItem[]

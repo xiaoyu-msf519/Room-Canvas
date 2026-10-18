@@ -22,7 +22,7 @@ from .scans import adapt_scan, read_json, safe_path, write_json
 from .surface_materials import apply_finishes
 from .mobile_config import public_endpoint, upload_token
 from .mobile_ingest import MAX_SCAN_BYTES
-from .example_layout import create_example_layout
+from .example_layout import LEGACY_TEMPLATE_IDS, create_example_layout
 
 
 def register_scan_routes(app: FastAPI, root: Path, start_generation, read_generation) -> None:
@@ -49,6 +49,9 @@ def register_scan_routes(app: FastAPI, root: Path, start_generation, read_genera
         if not path.is_file():
             raise HTTPException(404, "场景不存在")
         scene = read_json(path)
+        if scene.get("source", {}).get("kind") == "example-layout" and scene["source"].get("templateId") in LEGACY_TEMPLATE_IDS:
+            scene = create_example_layout(scene_id)
+            write_json(path, scene)
         ceiling = next((surface for surface in scene["room"]["surfaces"] if surface.get("id") == "room-ceiling"), None)
         if ceiling and ceiling.get("heightAlignment") != "lowest-wall-top":
             try:

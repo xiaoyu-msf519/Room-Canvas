@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import math
 
-TEMPLATE_ID = "three-bedroom-two-bath-v1"
+TEMPLATE_ID = "three-bedroom-two-bath-v2"
+LEGACY_TEMPLATE_IDS = {"three-bedroom-two-bath-v1"}
 TITLE = "示例户型 · 三室一厅两卫（主卧套卫）"
 HEIGHT = 2.8
 THICKNESS = 0.14
@@ -38,7 +39,16 @@ def create_example_layout(scene_id: str) -> dict:
         ("master-baths", "x", 0.5, 1.5, 6, [("ensuite", 4.875, 1.0, ["master", "bath-ensuite"])]),
         ("bath-divider", "z", 3.75, -1.5, 0.5, []),
     ]
-    surfaces, colliders, doorways = [], [], []
+    window_specs = [
+        ("bedroom-2", "outer-north", -3, 2.4, 0.9, 2.3, "bedroom-2", False),
+        ("bedroom-3", "outer-north", 3, 2.4, 0.9, 2.3, "bedroom-3", False),
+        ("living-west", "outer-west", 1.4, 2.8, 0.9, 2.3, "living", False),
+        ("living-south", "outer-south", -0.5, 2.4, 0.9, 2.3, "living", False),
+        ("master-south", "outer-south", 3.75, 2.3, 0.9, 2.3, "master", False),
+        ("master-east", "outer-east", 3, 2.0, 0.9, 2.3, "master", False),
+        ("ensuite", "outer-east", -0.5, 0.9, 1.8, 2.4, "bath-ensuite", True),
+    ]
+    surfaces, colliders, doorways, windows = [], [], [], []
     floor_rotation = [-math.sqrt(0.5), 0, 0, math.sqrt(0.5)]
 
     for zone in zones:
@@ -59,16 +69,27 @@ def create_example_layout(scene_id: str) -> dict:
         rotation = [0, 0, 0, 1] if axis == "x" else [0, math.sqrt(0.5), 0, math.sqrt(0.5)]
         pieces = []
         cursor = start
-        for door_id, center, width, connects in sorted(openings, key=lambda opening: opening[1]):
+        apertures = [(door_id, center, width, 0, DOOR_HEIGHT, connects, None, False) for door_id, center, width, connects in openings]
+        apertures.extend((window_id, center, width, bottom, top, None, zone, privacy)
+                         for window_id, owner, center, width, bottom, top, zone, privacy in window_specs if owner == wall_id)
+        for opening_id, center, width, bottom, top, connects, zone, privacy in sorted(apertures, key=lambda opening: opening[1]):
             left, right = center - width / 2, center + width / 2
-            if left < cursor or right > end:
-                raise ValueError("Example doorway overlaps another opening or exceeds its wall")
+            if left < cursor or right > end or not 0 <= bottom < top <= HEIGHT:
+                raise ValueError("Example opening overlaps another opening or exceeds its wall")
             if left > cursor:
                 pieces.append((cursor, left, 0, HEIGHT))
-            pieces.append((left, right, DOOR_HEIGHT, HEIGHT))
-            position = [center, DOOR_HEIGHT / 2, fixed] if axis == "x" else [fixed, DOOR_HEIGHT / 2, center]
-            doorways.append({"id": f"example-door-{door_id}", "kind": "doorway", "wallId": f"example-wall-{wall_id}",
-                             "position": position, "size": [width, DOOR_HEIGHT, THICKNESS], "rotation": list(rotation), "connects": connects})
+            if bottom > 0:
+                pieces.append((left, right, 0, bottom))
+            if top < HEIGHT:
+                pieces.append((left, right, top, HEIGHT))
+            y = (bottom + top) / 2
+            position = [center, y, fixed] if axis == "x" else [fixed, y, center]
+            opening = {"id": f"example-{'door' if connects else 'window'}-{opening_id}", "kind": "doorway" if connects else "window",
+                       "wallId": f"example-wall-{wall_id}", "position": position, "size": [width, top - bottom, THICKNESS], "rotation": list(rotation)}
+            if connects:
+                doorways.append({**opening, "connects": connects})
+            else:
+                windows.append({**opening, "zoneId": zone, "privacy": privacy})
             cursor = right
         if cursor < end:
             pieces.append((cursor, end, 0, HEIGHT))
@@ -79,6 +100,10 @@ def create_example_layout(scene_id: str) -> dict:
             surfaces.append(panel)
             colliders.append({key: panel[key] for key in ("position", "rotation", "size")})
 
+    # Closed glass blocks walking while allowing direct sunlight through the hole.
+    for window in windows:
+        colliders.append({"position": window["position"], "rotation": window["rotation"], "size": [window["size"][0], window["size"][1], 0.018]})
+
     colliders.extend([
         {"position": [0, -0.05, 0], "size": [12, 0.1, 10], "rotation": [0, 0, 0, 1]},
         {"position": [0, HEIGHT + 0.04, 0], "size": [12, 0.08, 10], "rotation": [0, 0, 0, 1]},
@@ -88,7 +113,7 @@ def create_example_layout(scene_id: str) -> dict:
         "source": {"kind": "example-layout", "templateId": TEMPLATE_ID, "schemaVersion": "roomcanvas.example.v1", "scanId": scene_id,
                    "worldOffset": [0, 0, 0], "coordinateSystem": "right-handed-y-up", "matrixLayout": "column-major", "orientation": None},
         "room": {"surfaces": surfaces, "colliders": colliders, "min": [-6.07, -0.1, -5.07], "max": [6.07, 2.88, 5.07], "bounds": [12.14, 2.98, 10.14],
-                 "layout": {"templateId": TEMPLATE_ID, "zones": zones, "doorways": doorways, "spawn": [0, 1.5, 0]}},
+                 "layout": {"templateId": TEMPLATE_ID, "zones": zones, "doorways": doorways, "windows": windows, "spawn": [0, 1.5, 0]}},
         "furniture": [], "cameras": [], "warnings": [],
         "pipeline": {"status": "ready", "preparation": "complete", "autoReconstruct": False, "stageMessage": "示例户型已生成",
                      "completed": 0, "total": 0, "failed": 0, "needsReview": 0},

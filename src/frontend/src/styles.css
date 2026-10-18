@@ -360,6 +360,12 @@ kbd { color: #6b7d85; font: 9px 'DM Mono', monospace; }
 .resource-image.is-furniture img { object-fit: contain; }
 .resource-card strong, .resource-card small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 6px 7px 0; font-size: 10px; font-weight: 500; }
 .resource-card small { margin-top: 4px; font-size: 9px; color: #839ca5; }
+.resource-card-copy { min-width: 0; }
+.resource-grid.is-furniture-list { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.is-furniture-list .resource-card { height: 80px; display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 10px; padding: 7px; }
+.is-furniture-list .resource-image { width: 64px; height: 64px; aspect-ratio: 1; border-radius: 2px; }
+.is-furniture-list .resource-card strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; margin: 0; white-space: normal; overflow-wrap: anywhere; font-size: 11px; line-height: 15px; }
+.is-furniture-list .resource-card small { margin: 6px 0 0; line-height: 12px; }
 .resource-applying { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(5,12,17,.65); }
 .resource-empty { grid-column: 1 / -1; min-height: 100px; display: grid; place-items: center; color: #8da4ad; font-size: 11px; }
 .resource-pagination { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 10px; flex-shrink: 0; border-top: 1px solid var(--line); color: #8da4ad; font: 10px 'DM Mono', monospace; }

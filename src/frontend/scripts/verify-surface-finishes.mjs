@@ -85,7 +85,30 @@ try {
     await assert.rejects(catalogImageFile('../API.md'))
     await assert.rejects(catalogImageFile('decoration-005001'))
   } finally { globalThis.fetch = savedFetch }
+  const { acquireSurfaceTexture, retryImageUrl } = await vite.ssrLoadModule('/src/services/surfaceTextures.ts')
+  assert.equal(new URL(retryImageUrl('/image?variant=texture', 1), 'http://test').searchParams.get('variant'), 'texture')
+  let failures = 2
+  let requests = 0
+  TextureLoader.prototype.load = function (url, onLoad, progress, onError) {
+    requests++
+    const texture = new Texture({ width: 4, height: 4 })
+    if (failures-- > 0) queueMicrotask(() => onError?.(new Error('simulated connection loss')))
+    else queueMicrotask(() => onLoad?.(texture))
+    return texture
+  }
+  const interrupted = { ...appearance, textureUrl: '/recover-material.jpg', loadVersion: 1 }
+  await act(async () => useSurfaceFinishStore.getState().setFinish(scan.id, 'wall', interrupted))
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)) })
+  assert.equal(requests, 2, 'Wall panels must share one bounded retry sequence')
+  assert.ok(walls.every((wall) => !wall.instance.material.map), 'An unavailable image must retain the recovered paint')
+  const preview = acquireSurfaceTexture(interrupted.textureUrl)
+  const decoded = await preview.ready
+  preview.release()
+  await act(async () => useSurfaceFinishStore.getState().setFinish(scan.id, 'wall', { ...interrupted, loadVersion: 2 }))
+  assert.equal(requests, 3, 'Retrying the same URL after failure must issue a new request, then share it with the scene')
+  assert.ok(walls.every((wall) => wall.instance.material.map?.source === decoded.source))
   console.log('PASS: per-wall/floor selection, shared metric textures, unchanged BSP, poll/Play/room persistence, original-paint reset, and internal furniture image import.')
+  console.log('PASS: interrupted texture loading retries once, failed promises are evicted, selecting the same texture recovers, and preview/scene share one decoded image.')
 } finally {
   if (renderer) await renderer.unmount()
   TextureLoader.prototype.load = originalLoad

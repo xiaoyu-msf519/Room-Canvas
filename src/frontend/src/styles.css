@@ -349,14 +349,16 @@ kbd { color: #6b7d85; font: 9px 'DM Mono', monospace; }
 .surface-tiling { display: grid; grid-template-columns: 1fr 50px 50px 26px; gap: 5px; align-items: center; color: #8da4ad; font-size: 9px; }
 .surface-tiling input { width: 100%; padding: 0 3px; }
 .resource-grid { min-height: 140px; flex: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 8px; padding: 10px; overflow: auto; scrollbar-width: thin; scrollbar-color: #3d5b65 transparent; }
-.resource-card { position: relative; width: 100%; padding: 0 0 6px; overflow: hidden; text-align: left; border: 1px solid #32434a; border-radius: 4px; background: #182329; color: #c5d6db; cursor: pointer; }
+.resource-card { position: relative; display: flex; flex-direction: column; align-items: stretch; width: 100%; padding: 0 0 6px; overflow: hidden; text-align: left; border: 1px solid #32434a; border-radius: 4px; background: #182329; color: #c5d6db; cursor: pointer; }
 .resource-card[draggable="true"] { cursor: grab; }
 .resource-card:hover:not(:disabled), .resource-card.is-selected { border-color: var(--cyan); }
 .resource-card:disabled { cursor: default; }
 .resource-card:disabled strong, .resource-card:disabled small { opacity: .55; }
-.resource-image { width: 100%; aspect-ratio: 1.5; position: relative; background: #202a2e; overflow: hidden; }
+.resource-image { width: 100%; aspect-ratio: 1.5; flex-shrink: 0; position: relative; background: #202a2e; overflow: hidden; }
 .resource-image.is-furniture { background: #eceeec; }
 .resource-image img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.resource-image img[hidden] { display: none; }
+.resource-image-error { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px; color: #a6a49a; font-size: 10px; }
 .resource-image.is-furniture img { object-fit: contain; }
 .resource-card strong, .resource-card small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 6px 7px 0; font-size: 10px; font-weight: 500; }
 .resource-card small { margin-top: 4px; font-size: 9px; color: #839ca5; }

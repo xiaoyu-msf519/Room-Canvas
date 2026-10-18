@@ -47,6 +47,15 @@ async def verify():
         texture = await client.get(wall["items"][0]["textureUrl"])
         with Image.open(io.BytesIO(texture.content)) as image:
             assert max(image.size) <= 2048
+        wallpapers = (await client.get("/api/catalog/items", params={"kind": "wall", "category": "墙面_壁纸与墙纸"})).json()
+        assert wallpapers["total"] == 7
+        for wallpaper in wallpapers["items"]:
+            for variant in ("thumbnailUrl", "textureUrl"):
+                response = await client.get(wallpaper[variant])
+                assert response.status_code == 200 and response.headers["content-type"] == "image/jpeg"
+                with Image.open(io.BytesIO(response.content)) as image:
+                    image.load()
+                    assert image.width > 0 and image.height > 0
         for path in ("API.md", "id_ed25519", "..%2F..%2FAPI.md", "_采集记录"):
             response = await client.get(f"/api/catalog/items/{path}/image?variant=original")
             assert response.status_code == 404

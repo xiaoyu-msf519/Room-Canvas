@@ -8,6 +8,7 @@ export interface SurfaceFinish {
   textureUrl: string
   coverageMeters: [number, number]
   rotationDegrees: number
+  loadVersion?: number
 }
 
 export function surfaceGroupId(surface: RoomSurface): string {

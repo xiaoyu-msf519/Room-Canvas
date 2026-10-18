@@ -1,31 +1,9 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
-import { BoxGeometry, Color, Quaternion, RepeatWrapping, SRGBColorSpace, TextureLoader, Vector3 } from 'three'
+import { BoxGeometry, Color, Quaternion, RepeatWrapping, SRGBColorSpace, Vector3 } from 'three'
 import type { MeshStandardMaterial, Texture } from 'three'
 import type { RoomSurface } from '../types/scene'
 import type { SurfaceFinish } from '../state/useSurfaceFinishStore'
-
-interface TextureSource { base: Texture; ready: Promise<Texture>; users: number }
-const textureSources = new Map<string, TextureSource>()
-
-function acquireTextureSource(url: string) {
-  let entry = textureSources.get(url)
-  if (!entry) {
-    let base!: Texture
-    const ready = new Promise<Texture>((resolve, reject) => {
-      base = new TextureLoader().load(url, resolve, undefined, reject)
-    })
-    entry = { base, ready, users: 0 }
-    textureSources.set(url, entry)
-  }
-  const acquired = entry
-  acquired.users++
-  return {
-    ready: acquired.ready,
-    release() {
-      if (--acquired.users === 0) { acquired.base.dispose(); textureSources.delete(url) }
-    },
-  }
-}
+import { acquireSurfaceTexture } from '../services/surfaceTextures'
 
 /** World-space metric UVs keep door/window panels on a single continuous sheet. */
 export function createMetricWallGeometry(surface: RoomSurface, reference = surface) {
@@ -63,7 +41,7 @@ export function useSurfaceAppearance(material: MeshStandardMaterial, surface: Ro
     const url = finish.textureUrl
     let active = true
     let clone: Texture | null = null
-    const source = acquireTextureSource(url)
+    const source = acquireSurfaceTexture(url)
     void source.ready.then((result) => {
       if (!active) return
       // Clones keep independent tiling but share one image/GPU source across panels.
@@ -71,7 +49,7 @@ export function useSurfaceAppearance(material: MeshStandardMaterial, surface: Ro
       setLoaded({ url, texture: clone })
     }).catch(() => { if (active) setLoaded(null) })
     return () => { active = false; clone?.dispose(); source.release() }
-  }, [finish?.textureUrl])
+  }, [finish?.textureUrl, finish?.loadVersion])
   useLayoutEffect(() => {
     if (loaded && finish && loaded.url === finish.textureUrl) {
       configureSurfaceTexture(loaded.texture, finish)

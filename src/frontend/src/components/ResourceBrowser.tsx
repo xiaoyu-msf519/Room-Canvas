@@ -5,6 +5,7 @@ import { surfaceGroupId, useSurfaceFinishStore, type SurfaceFinish } from '../st
 import { CATALOG_DRAG_TYPE, catalogImageFile, type CatalogItem, type CatalogKind, type CatalogPage } from '../types/catalog'
 import { acquireSurfaceTexture } from '../services/surfaceTextures'
 import { CatalogThumbnail } from './CatalogThumbnail'
+import { editableSurfaces } from '../scene/editableSurfaces'
 
 const tabs = [{ id: 'furniture', label: '家具', icon: Armchair }, { id: 'wall', label: '墙面', icon: Square }, { id: 'floor', label: '地板', icon: Layers }] as const
 
@@ -14,7 +15,8 @@ export function ResourceBrowser({ onToast }: { onToast: (message: string) => voi
   const selectSurface = useRoomCanvasStore((state) => state.setSelectedSurfaceId)
   const addAsset = useRoomCanvasStore((state) => state.addUploadedAsset)
   const setFinish = useSurfaceFinishStore((state) => state.setFinish)
-  const selected = scan?.room.surfaces.find((surface) => surface.id === selectedId)
+  const surfaces = editableSurfaces(scan?.room.surfaces ?? [])
+  const selected = surfaces.find((surface) => surface.id === selectedId)
   const selectedGroup = selected ? surfaceGroupId(selected) : null
   const finish = useSurfaceFinishStore((state) => scan && selectedGroup ? state.rooms[scan.id]?.[selectedGroup] : undefined)
   const [kind, setKind] = useState<CatalogKind>('furniture')
@@ -87,7 +89,7 @@ export function ResourceBrowser({ onToast }: { onToast: (message: string) => voi
   const changeFinish = (patch: Partial<SurfaceFinish>) => {
     if (scan && selectedGroup && finish) setFinish(scan.id, selectedGroup, { ...finish, ...patch })
   }
-  const targets = scan?.room.surfaces.filter((surface) => surface.kind === kind).filter((surface, index, all) => all.findIndex((entry) => surfaceGroupId(entry) === surfaceGroupId(surface)) === index) ?? []
+  const targets = surfaces.filter((surface) => surface.kind === kind).filter((surface, index, all) => all.findIndex((entry) => surfaceGroupId(entry) === surfaceGroupId(surface)) === index)
   const pages = Math.max(1, Math.ceil((data?.total ?? 0) / 24))
 
   if (collapsed) return <button className="resource-reopen glass-panel" onClick={() => setCollapsed(false)} title="展开资源库" aria-label="展开资源库"><PanelRightOpen size={17} /></button>
@@ -95,7 +97,7 @@ export function ResourceBrowser({ onToast }: { onToast: (message: string) => voi
     <header className="resource-heading"><span><Layers size={15} />资源库</span><div><button className="resource-icon" onClick={() => setRevision((value) => value + 1)} title="刷新资源库" aria-label="刷新资源库"><RefreshCw size={14} /></button><button className="resource-icon" onClick={() => setCollapsed(true)} title="收起资源库" aria-label="收起资源库"><PanelRightClose size={15} /></button></div></header>
     <div className="resource-tabs" role="tablist" aria-label="资源类型">{tabs.map(({ id, label, icon: Icon }) => <button key={id} role="tab" aria-selected={kind === id} className={kind === id ? 'is-active' : ''} onClick={() => switchKind(id)}><Icon size={13} />{label}</button>)}</div>
     {kind !== 'furniture' && <div className="surface-context">
-      <label>当前表面<select aria-label="选择涂装表面" value={selected?.kind === kind ? selectedGroup ?? '' : ''} onChange={(event) => selectSurface(targets.find((surface) => surfaceGroupId(surface) === event.target.value)?.id ?? null)}><option value="">{kind === 'wall' ? '未选中墙面' : '未选中地板'}</option>{targets.map((surface, index) => <option key={surfaceGroupId(surface)} value={surfaceGroupId(surface)}>{kind === 'wall' ? '墙面' : '地板'} {String(index + 1).padStart(2, '0')}{surfaceGroupId(surface) === selectedGroup && finish ? ` · ${finish.name}` : ''}</option>)}</select>{finish && selected?.kind === kind && <button className="resource-icon" title="恢复扫描涂装" aria-label="恢复扫描涂装" onClick={() => { application.current++; setApplyingId(null); if (scan && selectedGroup) setFinish(scan.id, selectedGroup, null) }}><RotateCcw size={13} /></button>}</label>
+      <label>当前表面<select aria-label="选择涂装表面" value={selected?.kind === kind ? selectedGroup ?? '' : ''} onChange={(event) => selectSurface(targets.find((surface) => surfaceGroupId(surface) === event.target.value)?.id ?? null)}><option value="">{kind === 'wall' ? '未选中墙面' : '未选中地板'}</option>{targets.map((surface, index) => <option key={surfaceGroupId(surface)} value={surfaceGroupId(surface)}>{surface.label ?? `${kind === 'wall' ? '墙面' : '地板'} ${String(index + 1).padStart(2, '0')}`}{surfaceGroupId(surface) === selectedGroup && finish ? ` · ${finish.name}` : ''}</option>)}</select>{finish && selected?.kind === kind && <button className="resource-icon" title="恢复扫描涂装" aria-label="恢复扫描涂装" onClick={() => { application.current++; setApplyingId(null); if (scan && selectedGroup) setFinish(scan.id, selectedGroup, null) }}><RotateCcw size={13} /></button>}</label>
       {finish && selected?.kind === kind && <>
         <div className="surface-tiling"><span>整图覆盖 / m</span>{finish.coverageMeters.map((value, index) => <input key={index} aria-label={index === 0 ? '贴图覆盖宽度 m' : '贴图覆盖高度 m'} type="number" min="0.05" max="1000" step="0.1" value={Number(value.toFixed(3))} onChange={(event) => { const next = Number(event.target.value); if (Number.isFinite(next) && next >= 0.05 && next <= 1000) { const coverageMeters: [number, number] = [...finish.coverageMeters]; coverageMeters[index] = next; changeFinish({ coverageMeters }) } }} />)}<button className="resource-icon" title={`旋转贴图 90° · 当前 ${finish.rotationDegrees}°`} aria-label="旋转贴图 90 度" onClick={() => changeFinish({ rotationDegrees: (finish.rotationDegrees + 90) % 360 })}><RotateCw size={13} /></button></div>
       </>}

@@ -140,15 +140,26 @@ function createFurnitureTargets(furniture: SceneCollider[], floor: Triangle[]): 
 
 export function createWallVisuals(surfaces: RoomSurface[]) {
   const floor = createWalkFloor(surfaces)
-  const walls = surfaces.filter((surface) => surface.kind === 'wall').map((surface) => ({
-    surface,
-    facing: createWallFacing(surface, floor),
-    occluder: createWallOccluder(surface),
-    material: new MeshStandardMaterial({ color: surface.finish?.baseColor ?? '#d6dadb', roughness: surface.finish?.roughness ?? 0.92 }),
-    opaqueMaterial: new MeshStandardMaterial({ color: surface.finish?.baseColor ?? '#d6dadb', roughness: surface.finish?.roughness ?? 0.92 }),
-    solid: null as Mesh | null,
-    fade: { from: 1, target: 1, elapsed: WALL_FADE_SECONDS },
-  }))
+  const walls = surfaces.filter((surface) => surface.kind === 'wall').map((surface) => {
+    const material = new MeshStandardMaterial({ color: surface.finish?.baseColor ?? '#d6dadb', roughness: surface.finish?.roughness ?? 0.92 })
+    const opaqueMaterial = material.clone()
+    const positive = surface.wallFaces ? material.clone() : material
+    const negative = surface.wallFaces && surface.wallFaces.negative.editGroupId !== surface.wallFaces.positive.editGroupId ? material.clone() : positive
+    const positiveOpaque = surface.wallFaces ? opaqueMaterial.clone() : opaqueMaterial
+    const negativeOpaque = negative === positive ? positiveOpaque : opaqueMaterial.clone()
+    return {
+      surface,
+      facing: createWallFacing(surface, floor),
+      occluder: createWallOccluder(surface),
+      material, opaqueMaterial,
+      blendSlots: surface.wallFaces ? [material, positive, negative] : [material],
+      opaqueSlots: surface.wallFaces ? [opaqueMaterial, positiveOpaque, negativeOpaque] : [opaqueMaterial],
+      blendMaterials: [...new Set([material, positive, negative])],
+      opaqueMaterials: [...new Set([opaqueMaterial, positiveOpaque, negativeOpaque])],
+      solid: null as Mesh | null,
+      fade: { from: 1, target: 1, elapsed: WALL_FADE_SECONDS },
+    }
+  })
   const interiorTargets = createInteriorTargets(surfaces, floor, walls.map((wall) => wall.occluder))
   const ceiling = Math.max(...walls.map(({ surface }) => surface.position[1] + surface.size[1] / 2))
   const lastCamera = new Vector3(Infinity, Infinity, Infinity)
@@ -170,10 +181,12 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
       for (const wall of walls) {
         if (modeChanged) {
           // Edit uses smooth blending with BSP-ordered faces, including at opacity 1.
-          wall.material.transparent = edit
-          wall.material.depthWrite = !edit
-          wall.material.alphaHash = false
-          wall.material.needsUpdate = true
+          for (const material of wall.blendMaterials) {
+            material.transparent = edit
+            material.depthWrite = !edit
+            material.alphaHash = false
+            material.needsUpdate = true
+          }
         }
         let opacity = wallOpacityAt(wall.facing, camera, edit, cameraInside)
         if (checkOcclusion && opacity > CUTAWAY_OPACITY && (
@@ -184,6 +197,7 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
           // Play must be solid immediately, even if Edit was mid-transition.
           wall.fade = { from: 1, target: 1, elapsed: WALL_FADE_SECONDS }
           wall.material.opacity = 1
+          wall.blendMaterials.forEach((material) => { material.opacity = 1 })
         } else if (Math.abs(wall.fade.target - opacity) > 0.000001) {
           wall.fade = { from: wall.material.opacity, target: opacity, elapsed: 0 }
         }
@@ -198,8 +212,9 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
         const opacity = progress >= 1 - 1e-8 ? wall.fade.target :
           wall.fade.from + (wall.fade.target - wall.fade.from) * Easing.Cubic.Out(progress)
         wall.material.opacity = opacity
+        wall.blendMaterials.forEach((material) => { material.opacity = opacity })
       }
     },
-    dispose() { walls.forEach((wall) => { wall.material.dispose(); wall.opaqueMaterial.dispose() }) },
+    dispose() { walls.forEach((wall) => [...wall.blendMaterials, ...wall.opaqueMaterials].forEach((material) => material.dispose())) },
   }
 }

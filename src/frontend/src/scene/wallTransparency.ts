@@ -10,12 +10,15 @@ import { surfaceGroupId } from '../state/useSurfaceFinishStore'
 interface WallVisual {
   surface: RoomSurface
   material: MeshStandardMaterial
+  blendSlots?: MeshStandardMaterial[]
 }
 
 /** Split static walls once; BSP traversal gives exact back-to-front face order. */
 export function createWallTransparency(walls: WallVisual[]) {
   const identity = new Matrix4()
-  const polygons = walls.flatMap(({ surface }, index) => {
+  const slots: Array<{ wall: WallVisual; material: MeshStandardMaterial; surfaceId: string }> = []
+  const polygons = walls.flatMap((wall) => {
+    const { surface } = wall
     // Scan door subtraction can leave sub-micrometer slivers at floor level.
     if (surface.size.some((size) => size < 0.00001)) return []
     const reference = walls.find((wall) => surfaceGroupId(wall.surface) === surfaceGroupId(surface))!.surface
@@ -25,7 +28,11 @@ export function createWallTransparency(walls: WallVisual[]) {
     pose.quaternion.fromArray(surface.rotation)
     pose.updateMatrix()
     geometry.applyMatrix4(pose.matrix)
-    const result = CSG.fromGeometry(geometry, index).toPolygons()
+    const firstSlot = slots.length
+    const materials = wall.blendSlots ?? [wall.material]
+    materials.forEach((material, index) => slots.push({ wall, material, surfaceId: surface.wallFaces ? `${surface.id}:${index === 2 ? 'negative' : 'positive'}` : surface.id }))
+    geometry.groups.forEach((group) => { group.materialIndex = firstSlot + (surface.wallFaces ? group.materialIndex ?? 0 : 0) })
+    const result = CSG.fromGeometry(geometry).toPolygons()
     geometry.dispose()
     return result
   })
@@ -42,10 +49,12 @@ export function createWallTransparency(walls: WallVisual[]) {
     }
     const nodeMeshes = [...byWall].map(([index, faces]) => {
       const geometry = CSG.toGeometry(CSG.fromPolygons(faces), identity)
-      const mesh = new Mesh(geometry, walls[index].material)
+      const slot = slots[index]
+      const mesh = new Mesh(geometry, slot.material)
       mesh.name = 'scan-wall-fragment'
       mesh.receiveShadow = true
-      mesh.userData.wallId = walls[index].surface.id
+      mesh.userData.wallId = slot.wall.surface.id
+      mesh.userData.surfaceId = slot.surfaceId
       meshes.push(mesh)
       return mesh
     })

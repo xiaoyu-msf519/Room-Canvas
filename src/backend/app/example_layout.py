@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import math
 
-TEMPLATE_ID = "three-bedroom-two-bath-v2"
-LEGACY_TEMPLATE_IDS = {"three-bedroom-two-bath-v1"}
+TEMPLATE_ID = "three-bedroom-two-bath-v3"
+LEGACY_TEMPLATE_IDS = {"three-bedroom-two-bath-v1", "three-bedroom-two-bath-v2"}
 TITLE = "示例户型 · 三室一厅两卫（主卧套卫）"
 HEIGHT = 2.8
 THICKNESS = 0.14
@@ -60,7 +60,8 @@ def create_example_layout(scene_id: str) -> dict:
         corners = [[-width / 2, -depth / 2, 0], [width / 2, -depth / 2, 0], [width / 2, depth / 2, 0], [-width / 2, depth / 2, 0]]
         for kind, elevation in (("floor", 0), ("ceiling", HEIGHT)):
             surface = {"id": f"example-{zone['id']}-{kind}", "kind": kind, "position": [center[0], elevation, center[2]],
-                       "size": [width, depth, 0.08 if kind == "ceiling" else 0.1], "rotation": list(floor_rotation), "polygonCorners": corners}
+                       "size": [width, depth, 0.08 if kind == "ceiling" else 0.1], "rotation": list(floor_rotation), "polygonCorners": corners,
+                       "zoneId": zone["id"], "label": f"{zone['name']} · {'地板' if kind == 'floor' else '顶面'}", "editGroupId": f"example-{zone['id']}-{kind}"}
             if kind == "ceiling":
                 surface["heightAlignment"] = "lowest-wall-top"
             surfaces.append(surface)
@@ -93,10 +94,42 @@ def create_example_layout(scene_id: str) -> dict:
             cursor = right
         if cursor < end:
             pieces.append((cursor, end, 0, HEIGHT))
+        boundaries = set()
+        for zone in zones:
+            x0, z0, x1, z1 = zone["rect"]
+            if axis == "x" and (abs(fixed - z0) < 1e-6 or abs(fixed - z1) < 1e-6):
+                boundaries.update((x0, x1))
+            elif axis == "z" and (abs(fixed - x0) < 1e-6 or abs(fixed - x1) < 1e-6):
+                boundaries.update((z0, z1))
+        split_pieces = []
+        for left, right, bottom, top in pieces:
+            cuts = [left, *sorted(value for value in boundaries if left < value < right), right]
+            split_pieces.extend((a, b, bottom, top) for a, b in zip(cuts, cuts[1:]))
+        pieces = split_pieces
         for index, (left, right, bottom, top) in enumerate(pieces):
             middle, y = (left + right) / 2, (bottom + top) / 2
             panel = {"id": f"example-wall-{wall_id}-{index}", "kind": "wall", "size": [round(right - left, 6), round(top - bottom, 6), THICKNESS],
                      "position": [middle, y, fixed] if axis == "x" else [fixed, y, middle], "rotation": list(rotation)}
+            normal_x, normal_z = (0, 1) if axis == "x" else (1, 0)
+            owners = {}
+            for side, sign in (("positive", 1), ("negative", -1)):
+                px, _, pz = panel["position"]
+                px += sign * normal_x * THICKNESS
+                pz += sign * normal_z * THICKNESS
+                owners[side] = next((zone for zone in zones if zone["rect"][0] - 1e-6 <= px <= zone["rect"][2] + 1e-6
+                                     and zone["rect"][1] - 1e-6 <= pz <= zone["rect"][3] + 1e-6), None)
+            # Exterior faces share their sole room's finish; shared partitions
+            # keep separate room-facing materials without duplicating geometry.
+            fallback = owners["positive"] or owners["negative"] or min(zones, key=lambda zone:
+                max(zone["rect"][0] - panel["position"][0], 0, panel["position"][0] - zone["rect"][2]) ** 2 +
+                max(zone["rect"][1] - panel["position"][2], 0, panel["position"][2] - zone["rect"][3]) ** 2)
+            if fallback:
+                panel["wallFaces"] = {}
+                for side in ("positive", "negative"):
+                    owner = owners[side] or fallback
+                    direction = ("北墙" if fixed < owner["center"][2] else "南墙") if axis == "x" else ("西墙" if fixed < owner["center"][0] else "东墙")
+                    panel["wallFaces"][side] = {"zoneId": owner["id"], "editGroupId": f"example-wall-{wall_id}:{owner['id']}",
+                                                "label": f"{owner['name']} · {direction}"}
             surfaces.append(panel)
             colliders.append({key: panel[key] for key in ("position", "rotation", "size")})
 

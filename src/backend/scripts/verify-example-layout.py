@@ -29,6 +29,10 @@ async def verify():
             scene = first.json()
             assert scene["furniture"] == [] and scene["cameras"] == []
             assert scene["pipeline"]["autoReconstruct"] is False
+            floors = [surface for surface in scene["room"]["surfaces"] if surface["kind"] == "floor"]
+            assert len({surface["editGroupId"] for surface in floors}) == 6
+            partitions = [surface for surface in scene["room"]["surfaces"] if surface.get("wallFaces") and surface["wallFaces"]["positive"]["zoneId"] != surface["wallFaces"]["negative"]["zoneId"]]
+            assert partitions and all(surface["wallFaces"]["positive"]["editGroupId"] != surface["wallFaces"]["negative"]["editGroupId"] for surface in partitions)
             windows = scene["room"]["layout"]["windows"]
             assert len(windows) == 7 and all("outer-" in window["wallId"] for window in windows)
             assert {window["zoneId"] for window in windows} == {"living", "master", "bedroom-2", "bedroom-3", "bath-ensuite"}

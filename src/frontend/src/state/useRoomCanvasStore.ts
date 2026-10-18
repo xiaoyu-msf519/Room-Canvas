@@ -41,8 +41,8 @@ export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
     if (sameScene && JSON.stringify(state.scan) === JSON.stringify(scan)) return state
     const originals = scan.furniture.map((item) => {
       const current = sameScene ? state.furnitureList.find((entry) => entry.id === item.id) : null
-      if (!current) return item
-      const merged = { ...item, position: current.position, rotation: current.rotation, size: current.size }
+      if (!current) return { ...item, originalSize: item.originalSize ?? item.originalBounds?.size ?? [...item.size] }
+      const merged = { ...item, position: current.position, rotation: current.rotation, size: current.size, originalSize: current.originalSize ?? item.originalSize ?? item.originalBounds?.size ?? [...item.size] }
       return JSON.stringify(merged) === JSON.stringify(current) ? current : merged
     })
     const nextFurniture = [...originals, ...(sameScene ? state.furnitureList.filter((item) => item.kind === 'imported') : [])]
@@ -68,7 +68,7 @@ export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
   addUploadedAsset: (asset) => set((state) => state.uploadedAssets.some((current) => current.id === asset.id) ? state : ({ uploadedAssets: [asset, ...state.uploadedAssets] })),
   updateUploadedAsset: (id, patch) => set((state) => ({ uploadedAssets: state.uploadedAssets.map((asset) => asset.id === id ? { ...asset, ...patch } : asset) })),
   removeUploadedAsset: (id) => set((state) => ({ uploadedAssets: state.uploadedAssets.filter((asset) => asset.id !== id) })),
-  addFurniture: (item) => set((state) => ({ furnitureList: [...state.furnitureList, item] })),
+  addFurniture: (item) => set((state) => ({ furnitureList: [...state.furnitureList, { ...item, originalSize: item.originalSize ?? item.originalBounds?.size ?? [...item.size] }] })),
   updateFurniture: (id, patch) => set((state) => ({ furnitureList: state.furnitureList.map((item) => item.id === id ? { ...item, ...patch } : item) })),
   setDraggingAssetId: (draggingAssetId) => set({ draggingAssetId, placementPreview: null }),
   setPlacementPreview: (placementPreview) => set((state) => {

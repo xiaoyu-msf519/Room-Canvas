@@ -13,6 +13,8 @@
     "verify:finishes": "node scripts/verify-surface-finishes.mjs",
     "verify:performance": "node scripts/verify-scene-performance.mjs",
     "verify:example": "node scripts/verify-example-layout.mjs",
+    "verify:room-surfaces": "node scripts/verify-room-surfaces.mjs",
+    "verify:scale": "node scripts/verify-furniture-scale.mjs",
     "verify:solar": "node scripts/verify-solar.mjs",
     "preview": "vite preview"
   },

@@ -35,6 +35,13 @@ export interface FurnitureItem extends SceneCollider {
   reviewRequired?: boolean
   qualityWarning?: string | null
   originalBounds?: SceneCollider
+  originalSize?: Vec3
+}
+
+export interface WallFace {
+  zoneId: string
+  editGroupId: string
+  label: string
 }
 
 export interface RoomSurface extends SceneCollider {
@@ -42,6 +49,10 @@ export interface RoomSurface extends SceneCollider {
   kind: 'wall' | 'floor' | 'ceiling'
   polygonCorners?: Vec3[]
   heightAlignment?: 'lowest-wall-top'
+  zoneId?: string
+  label?: string
+  editGroupId?: string
+  wallFaces?: { positive: WallFace; negative: WallFace }
   finish?: {
     baseColor: string
     roughness: number

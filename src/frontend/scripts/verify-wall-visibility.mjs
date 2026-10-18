@@ -237,27 +237,29 @@ try {
   useRoomCanvasStore.getState().applyScan({ id: 'wall-test', room: { surfaces, colliders: [] }, furniture: [] })
   renderer = await create(React.createElement(React.Fragment, null, React.createElement(ScannedRoom), React.createElement(CameraProbe)), { camera: { position: [0, 4, 6] } })
   const walls = () => renderer.scene.findAll((node) => node.instance.name === 'scan-wall')
+  const materialsOf = (wall) => Array.isArray(wall.instance.material) ? wall.instance.material : [wall.instance.material]
+  const materialOf = (wall) => materialsOf(wall)[0]
   const fragments = () => renderer.scene.findAll((node) => node.instance.name === 'scan-wall-fragment')
   const fragmentGroup = () => renderer.scene.findByProps({ name: 'edit-wall-fragments' }).instance
-  const solid = walls()[0].instance.material
+  const solid = materialOf(walls()[0])
   const firstFragment = fragments()[0].instance
   assert.ok(walls().every((wall) => !wall.instance.visible), 'Edit draws both source boxes and BSP faces')
   assert.equal(fragmentGroup().visible, true)
-  assert.ok(fragments().every((fragment) => walls().some((wall) => fragment.instance.material === wall.instance.material)), 'Wall fragments do not share the animated wall materials')
+  assert.ok(fragments().every((fragment) => walls().some((wall) => materialsOf(wall).includes(fragment.instance.material))), 'Wall fragments do not share the animated wall materials')
   await renderer.advanceFrames(32, 1 / 60)
-  assert.equal(walls()[0].instance.material.opacity, CUTAWAY_OPACITY)
-  assert.equal(walls()[1].instance.material.opacity, 1)
+  assert.equal(materialOf(walls()[0]).opacity, CUTAWAY_OPACITY)
+  assert.equal(materialOf(walls()[1]).opacity, 1)
   camera.position.set(0, 4, -6)
   await renderer.advanceFrames(32, 1 / 60)
-  assert.equal(walls()[0].instance.material.opacity, 1, 'Near/far walls did not swap after orbit')
-  assert.equal(walls()[1].instance.material.opacity, CUTAWAY_OPACITY)
+  assert.equal(materialOf(walls()[0]).opacity, 1, 'Near/far walls did not swap after orbit')
+  assert.equal(materialOf(walls()[1]).opacity, CUTAWAY_OPACITY)
   await act(async () => useRoomCanvasStore.getState().setMode('play'))
-  assert.ok(walls().every((wall) => wall.instance.material.opacity === 1 && wall.instance.material.depthWrite))
+  assert.ok(walls().every((wall) => materialsOf(wall).every((material) => material.opacity === 1 && material.depthWrite)))
   assert.ok(walls().every((wall) => wall.instance.visible), 'Play source wall meshes are hidden')
   assert.equal(fragmentGroup().visible, false, 'Play also renders the Edit face fragments')
   await act(async () => useRoomCanvasStore.getState().setMode('edit'))
   await act(async () => useRoomCanvasStore.getState().applyScan({ id: 'wall-test', room: { surfaces: structuredClone(surfaces), colliders: [] }, furniture: [] }))
-  assert.equal(walls()[0].instance.material, solid, 'Task polling reallocated wall materials')
+  assert.equal(materialOf(walls()[0]), solid, 'Task polling reallocated wall materials')
   assert.equal(fragments()[0].instance, firstFragment, 'Task polling rebuilt the wall BSP')
   await renderer.unmount()
   renderer = null
@@ -272,32 +274,34 @@ try {
   const counts = []
   for (const [x, z] of [[8, 8], [-8, 8], [-8, -8], [8, -8]]) {
     for (const height of [7, 1.65, 0.25]) {
-      const before = walls().map((wall) => wall.instance.material.opacity)
-      const versions = walls().map((wall) => wall.instance.material.version)
+      const before = walls().map((wall) => materialOf(wall).opacity)
+      const versions = walls().map((wall) => materialOf(wall).version)
       camera.position.set(x, height, z)
       camera.lookAt(0, Math.min(height, 0.8), 0)
       await renderer.advanceFrames(1, 1 / 60)
-      walls().forEach(({ instance: { material } }, index) => {
+      walls().forEach((wall, index) => {
+        const material = materialOf(wall)
         assert.equal(material.transparent, true, 'Changing elevation disabled smooth blending')
         assert.equal(material.alphaHash, false)
         assert.equal(material.depthWrite, false)
         assert.equal(material.version, versions[index], 'Changing elevation invalidated a wall shader')
         assert.ok(Math.abs(material.opacity - before[index]) < 0.1, 'Changing elevation bypassed the fade')
+        assert.ok(materialsOf(wall).every((face) => face.opacity === material.opacity && face.transparent === material.transparent), 'Room-facing materials faded out of sync')
       })
       await renderer.advanceFrames(31, 1 / 60)
-      const faded = walls().filter((wall) => wall.instance.material.opacity < 0.999).length
+      const faded = walls().filter((wall) => materialOf(wall).opacity < 0.999).length
       assert.ok(faded > 0 && faded < walls().length, `Real scan has all or no walls faded from ${x},${height},${z}: ${faded}/${walls().length}`)
       counts.push(`${x},${height},${z}: ${faded} faded / ${walls().length - faded} solid`)
     }
   }
   await act(async () => useRoomCanvasStore.getState().setMode('play'))
-  assert.ok(walls().every((wall) => wall.instance.material.opacity === 1 && !wall.instance.material.transparent))
+  assert.ok(walls().every((wall) => materialsOf(wall).every((material) => material.opacity === 1 && !material.transparent)))
   // Actual component with the synthetic S boundary must show the same extra fade.
   await act(async () => useRoomCanvasStore.getState().applyScan({ id: 's-wall-test', room: { surfaces: sSurfaces, colliders: [] }, furniture: [] }))
   camera.position.copy(sCamera)
   await renderer.advanceFrames(32, 1 / 60)
-  assert.equal(walls()[1].instance.material.opacity, CUTAWAY_OPACITY)
-  assert.equal(walls()[3].instance.material.opacity, 1)
+  assert.equal(materialOf(walls()[1]).opacity, CUTAWAY_OPACITY)
+  assert.equal(materialOf(walls()[3]).opacity, 1)
   console.log(`PASS: smooth opacity without dithering; BSP ${bspStats}; stable Edit pipeline through repeated 0.5s fades at 30/60/120fps, interruption, reduced motion, immediate Play opacity, S-boundary occlusion, material reuse; actual scan: ${counts.join('; ')}`)
 } finally {
   if (renderer) await renderer.unmount()

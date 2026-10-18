@@ -7,6 +7,7 @@ import type { FurnitureItem, Vec3 } from '../types/scene'
 import { groundRotation } from './furnitureTransform'
 import { FurnitureGizmo } from './FurnitureGizmo'
 import { createModelDisplay } from './modelDisplay'
+import { FurnitureReadout } from './FurnitureReadout'
 
 function ModelObject({ modelUrl, size }: { modelUrl: string; size: Vec3 }) {
   const gl = useThree((state) => state.gl)
@@ -36,6 +37,7 @@ function FurnitureVisual({ modelUrl, size }: { modelUrl?: string; size: Vec3 }) 
 
 const FurnitureObject = memo(function FurnitureObject({ item }: { item: FurnitureItem }) {
   const selected = useRoomCanvasStore((state) => state.selectedId === item.id)
+  const originalSize = item.originalSize ?? item.originalBounds?.size ?? item.size
   const mode = useRoomCanvasStore((state) => state.mode)
   const setSelectedId = useRoomCanvasStore((state) => state.setSelectedId)
   const updateFurniture = useRoomCanvasStore((state) => state.updateFurniture)
@@ -61,7 +63,8 @@ const FurnitureObject = memo(function FurnitureObject({ item }: { item: Furnitur
     const group = groupRef.current
     if (!group) return
     group.quaternion.copy(groundRotation(group.quaternion))
-    const nextPosition: Vec3 = [group.position.x, item.position[1], group.position.z]
+    const nextPosition: Vec3 = [group.position.x, group.position.y, group.position.z]
+    const nextSize: Vec3 = [item.size[0] * group.scale.x, item.size[1] * group.scale.y, item.size[2] * group.scale.z]
     const nextRotation: FurnitureItem['rotation'] = [group.quaternion.x, group.quaternion.y, group.quaternion.z, group.quaternion.w]
     group.position.y = nextPosition[1]
     group.scale.set(1, 1, 1)
@@ -69,6 +72,8 @@ const FurnitureObject = memo(function FurnitureObject({ item }: { item: Furnitur
     updateFurniture(item.id, {
       position: nextPosition,
       rotation: nextRotation,
+      size: nextSize,
+      originalSize: [...originalSize],
     })
     requestAnimationFrame(() => {
       setIsTransforming(false)
@@ -76,7 +81,7 @@ const FurnitureObject = memo(function FurnitureObject({ item }: { item: Furnitur
   }
 
   const modelUrl = mode === 'play' ? item.modelUrl : item.editModelUrl
-  const group = <group ref={groupRef} onClick={(event) => { event.stopPropagation(); setSelectedId(item.id) }}>
+  const group = <group name="furniture-object" userData={{ furnitureId: item.id }} ref={groupRef} onClick={(event) => { event.stopPropagation(); setSelectedId(item.id) }}>
     <FurnitureVisual modelUrl={modelUrl} size={item.size} />
   </group>
 
@@ -85,9 +90,12 @@ const FurnitureObject = memo(function FurnitureObject({ item }: { item: Furnitur
     {selected && mode === 'edit' && <FurnitureGizmo
       target={groupRef}
       height={item.position[1] * 2}
+      size={item.size}
+      originalSize={originalSize}
       onDragStart={() => setIsTransforming(true)}
       onDragEnd={commitTransform}
     />}
+    {selected && mode === 'edit' && <FurnitureReadout target={groupRef} size={item.size} original={originalSize} />}
   </>
 })
 
@@ -112,4 +120,4 @@ export function FurnitureModels() {
   </>
 }
 
-useGLTF.preload('/demo/sofa-edit-low.glb')
+if (typeof window !== 'undefined') useGLTF.preload('/demo/sofa-edit-low.glb')

@@ -8,6 +8,13 @@ import { acquireSurfaceTexture } from '../services/surfaceTextures'
 /** World-space metric UVs keep door/window panels on a single continuous sheet. */
 export function createMetricWallGeometry(surface: RoomSurface, reference = surface) {
   const geometry = new BoxGeometry(...surface.size)
+  if (surface.wallFaces) {
+    geometry.clearGroups()
+    geometry.addGroup(0, 24, 0)
+    const shared = surface.wallFaces.positive.editGroupId === surface.wallFaces.negative.editGroupId
+    geometry.addGroup(24, shared ? 12 : 6, 1)
+    if (!shared) geometry.addGroup(30, 6, 2)
+  }
   const rotation = new Quaternion(...surface.rotation)
   const axisRotation = new Quaternion(...reference.rotation)
   const uAxis = new Vector3(1, 0, 0).applyQuaternion(axisRotation)

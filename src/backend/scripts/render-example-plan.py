@@ -48,7 +48,7 @@ for zone in zones:
 draw.text((margin, 24), "三室一厅两卫 · 厨房 · 玄关 · 封闭阳台", font=title, fill="#233842")
 draw.text((margin, 59), f"固定布局 / {sum(zone['area'] for zone in zones):.2f} m² / 墙高 {HEIGHT:g} m / 蓝色为玻璃窗，空白为门洞", font=small, fill="#61737d")
 draw.text((margin, height - 37), "平面来自实际生成数据，未包含家具或装修。", font=small, fill="#61737d")
-output = ROOT / "tmp" / "example-layout-v6-plan.png"
+output = ROOT / "tmp" / "example-layout-v7-plan.png"
 output.parent.mkdir(parents=True, exist_ok=True)
 image.save(output)
 print(output)

@@ -27,7 +27,8 @@ def box_bounds(surface):
 def verify_structure(scene):
     room, layout = scene["room"], scene["room"]["layout"]
     zones, windows, doors = layout["zones"], layout["windows"], layout["doorways"]
-    assert Counter(zone["kind"] for zone in zones) == {"bedroom": 3, "living": 1, "bathroom": 2, "kitchen": 1, "foyer": 1, "balcony": 2}
+    assert Counter(zone["kind"] for zone in zones) == {"bedroom": 3, "living": 1, "bathroom": 2, "kitchen": 1, "foyer": 1, "balcony": 1}
+    assert abs(sum(zone["area"] for zone in zones) - 127.2245) < 1e-6
     for a, b in combinations(zones, 2):
         assert min(a["rect"][2], b["rect"][2]) - max(a["rect"][0], b["rect"][0]) <= 1e-7 or min(a["rect"][3], b["rect"][3]) - max(a["rect"][1], b["rect"][1]) <= 1e-7, "Room floor polygons overlap"
     outline = layout["boundary"]
@@ -60,7 +61,7 @@ def verify_structure(scene):
         if zone["kind"] in ("bedroom", "kitchen"):
             assert any(window["zoneId"] == zone["id"] for window in windows), "Bedroom/kitchen has no exterior window"
     foyer = next(zone for zone in zones if zone["kind"] == "foyer")
-    assert foyer["rect"][0] == 0 and foyer["rect"][3] == 6
+    assert foyer["area"] <= 6 and foyer["rect"][3] > max(zone["rect"][3] for zone in zones if zone is not foyer)
     assert not any(window["zoneId"] == foyer["id"] for window in windows)
     assert any(set(door["connects"]) == {"outside", "foyer"} for door in doors)
     assert any(set(door["connects"]) == {"foyer", "living"} for door in doors)
@@ -75,8 +76,7 @@ def verify_structure(scene):
                 if abs(position - boundary) < 1e-7:
                     glass_sides.add(side)
         assert len(glass_sides) == 3
-    assert any(set(door["connects"]) == {"living", "balcony-north"} for door in doors)
-    assert any(set(door["connects"]) == {"bedroom-3", "balcony-south"} for door in doors)
+    assert any(set(door["connects"]) == {"living", "balcony"} for door in doors)
     # Check enclosure at the sill, eye and wall-top levels, excluding declared
     # openings. This catches gaps introduced by junction trimming.
     opening_bounds = [box_bounds(opening) for opening in doors + windows]
@@ -94,7 +94,8 @@ def verify_structure(scene):
                         continue
                     assert any(contains(bounds, point) for _, bounds in wall_bounds), f"Unsealed wall boundary in {zone['id']} at {point}"
     assert scene["furniture"] == [] and scene["cameras"] == []
-    print(f"PASS: {len(outline)}-corner concave outline, {area:.2f}m2, {len(walls)} non-overlapping wall solids, {len(zones)} independent surfaces, kitchen/bedroom windows, two glazed balconies and a windowless foyer.")
+    assert len(layout["furniturePlan"]) == 28
+    print(f"PASS: restored {len(outline)}-corner concave outline, {area:.2f}m2, {len(walls)} non-overlapping wall solids, {len(zones)} independent rooms, bedroom/kitchen windows, glazed balcony and projecting windowless foyer.")
 
 
 async def verify():
@@ -117,8 +118,8 @@ async def verify():
             partitions = [surface for surface in scene["room"]["surfaces"] if surface.get("wallFaces") and surface["wallFaces"]["positive"]["zoneId"] != surface["wallFaces"]["negative"]["zoneId"]]
             assert partitions and all(surface["wallFaces"]["positive"]["editGroupId"] != surface["wallFaces"]["negative"]["editGroupId"] for surface in partitions)
             windows = scene["room"]["layout"]["windows"]
-            assert len(windows) == 14
-            assert {window["zoneId"] for window in windows} == {"living", "master", "bedroom-2", "bedroom-3", "bath-ensuite", "bath-shared", "kitchen", "balcony-north", "balcony-south"}
+            assert len(windows) == 11 and all("outer-" in window["wallId"] for window in windows)
+            assert {window["zoneId"] for window in windows} == {"living", "master", "bedroom-2", "bedroom-3", "bath-ensuite", "bath-shared", "kitchen", "balcony"}
             high = next(window for window in windows if window["zoneId"] == "bath-ensuite")
             assert high["privacy"] and abs(high["position"][1] - high["size"][1] / 2 - 1.8) < 1e-8
             assert scene["room"] == create_example_layout(scene["id"])["room"]
@@ -145,17 +146,19 @@ async def verify():
                 assert loaded["furniture"] == [] and loaded["room"] == scene["room"]
                 assert (await client.get("/api/scenes/latest")).json()["id"] == scene["id"]
                 assert (await client.get(f"/api/scenes/{scene['id']}")).json()["pipeline"]["status"] == "ready"
-                legacy = {"id": "legacyexample", "source": {"kind": "example-layout", "templateId": "three-bedroom-two-bath-v1"}, "room": {"surfaces": []}}
-                write_json(root / "tmp/scans/legacyexample/scene-manifest.json", legacy)
-                migrated = (await client.get("/api/scenes/legacyexample")).raise_for_status().json()
-                assert migrated["id"] == legacy["id"] and migrated["source"]["templateId"] == TEMPLATE_ID
-                assert len(migrated["room"]["layout"]["windows"]) == 14 and migrated["furniture"] == []
-                assert (await client.post("/api/room-library/legacyexample/load")).json()["id"] == legacy["id"]
+                for version in (1, 6):
+                    legacy_id = f"legacyexample{version}"
+                    legacy = {"id": legacy_id, "source": {"kind": "example-layout", "templateId": f"three-bedroom-two-bath-v{version}"}, "room": {"surfaces": []}}
+                    write_json(root / f"tmp/scans/{legacy_id}/scene-manifest.json", legacy)
+                    migrated = (await client.get(f"/api/scenes/{legacy_id}")).raise_for_status().json()
+                    assert migrated["id"] == legacy_id and migrated["source"]["templateId"] == TEMPLATE_ID
+                    assert migrated["room"] == create_example_layout(legacy_id)["room"] and migrated["furniture"] == []
+                    assert (await client.post(f"/api/room-library/{legacy_id}/load")).json() == migrated
             await asyncio.sleep(0.02)
         finally:
             await restarted.router.shutdown()
     print("PASS: deterministic structural geometry, independent scene IDs, empty furniture/materials, room listing, restart/reload, and no generation/cache pipeline calls.")
-    print("PASS: exterior bedroom/kitchen windows, two glazed balconies, private bathroom windows, and legacy upgrade without duplicate room IDs.")
+    print("PASS: restored enlarged layout and v6 image-layout migration without duplicate room IDs.")
 
 
 asyncio.run(verify())

@@ -265,7 +265,10 @@ try {
   renderer = null
 
   // Run the same camera updates against the real 30-panel scan, not only a cube.
-  const actual = await fetch('http://127.0.0.1:8000/api/scenes/latest').then((response) => response.json())
+  const roomLibrary = await fetch('http://127.0.0.1:8000/api/room-library').then((response) => response.json())
+  const scannedRoom = roomLibrary.rooms.find((room) => room.kind !== 'example-layout' && room.status === 'complete')
+  if (!scannedRoom) throw new Error('verify:walls requires at least one scanned room in the room library')
+  const actual = await fetch(`http://127.0.0.1:8000/api/room-library/${scannedRoom.id}/load`, { method: 'POST' }).then((response) => response.json())
   const positions = [[8, 8], [-8, 8], [-8, -8], [8, -8]].flatMap(([x, z]) => [7, 1.5, 0.25].map((height) => [x, height, z]))
   const bspStats = verifyFaceOrder(actual.room.surfaces, positions)
   verifyFaceOrder(sSurfaces, [[-6, 5, 6], [-6, 1.5, 6], [-6, 0.25, 6]])

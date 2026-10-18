@@ -9,6 +9,7 @@ import { surfaceGroupId, useSurfaceFinishStore, type SurfaceFinish } from '../st
 import { createMetricWallGeometry, useSurfaceAppearance } from './surfaceAppearance'
 import { RoomWindows } from './RoomWindows'
 import { editableSurfaces, wallFaceSurface, wallSelectionId } from './editableSurfaces'
+import { trimWallJunctions } from './wallJunctions'
 
 function selectSurface(event: ThreeEvent<MouseEvent>, id: string) {
   const state = useRoomCanvasStore.getState()
@@ -84,7 +85,8 @@ export function ScannedRoom() {
   }, [scan?.id, scan?.room.surfaces])
   const { camera } = useThree()
   // Task polling replaces the manifest; geometry-identical polls must reuse GPU resources.
-  const geometryKey = JSON.stringify(scan?.room.surfaces ?? [])
+  const normalizedSurfaces = useMemo(() => trimWallJunctions(scan?.room.surfaces ?? []), [scan?.room.surfaces])
+  const geometryKey = JSON.stringify(normalizedSurfaces)
   const visuals = useMemo(() => createWallVisuals(JSON.parse(geometryKey)), [geometryKey])
   const transparency = useMemo(() => createWallTransparency(visuals.walls), [visuals])
   const shadowOnly = useMemo(() => new MeshBasicMaterial({ colorWrite: false, depthWrite: false }), [])

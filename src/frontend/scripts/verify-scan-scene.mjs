@@ -6,7 +6,10 @@ import { createServer } from 'vite'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const { Box3, Matrix4, Quaternion, Vector3 } = createRequire(import.meta.url)('three')
-const scene = await fetch('http://127.0.0.1:8000/api/scenes/latest').then((r) => r.json())
+const roomLibrary = await fetch('http://127.0.0.1:8000/api/room-library').then((r) => r.json())
+const scannedRoom = roomLibrary.rooms.find((room) => room.kind !== 'example-layout' && room.status === 'complete')
+if (!scannedRoom) throw new Error('verify:scan requires at least one scanned room in the room library')
+const scene = await fetch(`http://127.0.0.1:8000/api/room-library/${scannedRoom.id}/load`, { method: 'POST' }).then((r) => r.json())
 const vite = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true }, appType: 'custom' })
 let renderer
 try {

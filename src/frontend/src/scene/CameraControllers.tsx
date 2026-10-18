@@ -3,6 +3,7 @@ import { OrbitControls } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { Euler, PerspectiveCamera, Vector3 } from 'three'
+import type { Camera } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import { canStandAt, captureEditorView, createWalkFloor, createWalkObstacles, EYE_HEIGHT, findWalkSpawn, restoreEditorView, setWalkFocus } from './navigation'
 import { bindPlayExit } from './playExit'
@@ -22,6 +23,25 @@ function wrapAngle(angle: number) {
   return Math.atan2(Math.sin(angle), Math.cos(angle))
 }
 
+export function applyEditCameraMove(camera: Camera, controls: { target: Vector3; update: () => void }, keys: Set<string>, deltaSeconds: number) {
+  const forward = Number(keys.has('w') || keys.has('arrowup')) - Number(keys.has('s') || keys.has('arrowdown'))
+  const strafe = Number(keys.has('d') || keys.has('arrowright')) - Number(keys.has('a') || keys.has('arrowleft'))
+  if (!forward && !strafe) return false
+  const direction = new Vector3()
+  camera.getWorldDirection(direction)
+  direction.y = 0
+  if (direction.lengthSq() < 1e-8) return false
+  direction.normalize()
+  const right = new Vector3(-direction.z, 0, direction.x)
+  const speed = keys.has('shift') ? 6 : 3.2
+  const step = speed * Math.min(deltaSeconds, 0.05) / (Math.hypot(forward, strafe) || 1)
+  const movement = direction.multiplyScalar(forward * step).add(right.multiplyScalar(strafe * step))
+  camera.position.add(movement)
+  controls.target.add(movement)
+  controls.update()
+  return true
+}
+
 function requestRawPointerLock(element: HTMLCanvasElement) {
   if (useRoomCanvasStore.getState().mode !== 'play') return
   try {
@@ -39,6 +59,32 @@ function requestRawPointerLock(element: HTMLCanvasElement) {
 
 export function EditCameraController({ controlsRef }: { controlsRef: ControlsRef }) {
   const mode = useRoomCanvasStore((state) => state.mode)
+  const { camera } = useThree()
+  const regress = useThree((state) => state.performance.regress)
+  const keys = useRef(new Set<string>())
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (useRoomCanvasStore.getState().mode !== 'edit') return
+      const target = event.target as HTMLElement | null
+      if (target?.tagName === 'INPUT' || target?.tagName === 'SELECT' || target?.isContentEditable) return
+      const key = event.key.toLowerCase()
+      if (!['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(key)) return
+      event.preventDefault()
+      keys.current.add(key)
+    }
+    const onKeyUp = (event: KeyboardEvent) => keys.current.delete(event.key.toLowerCase())
+    const clear = () => keys.current.clear()
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', clear)
+    return () => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); window.removeEventListener('blur', clear) }
+  }, [])
+  useFrame((_, delta) => {
+    if (mode !== 'edit') return
+    const controls = controlsRef.current
+    if (!controls) return
+    if (applyEditCameraMove(camera, controls, keys.current, delta)) regress()
+  })
   return (
     <OrbitControls
       ref={controlsRef}

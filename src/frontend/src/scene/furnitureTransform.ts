@@ -17,9 +17,8 @@ export function furnitureDimensions(size: Vec3, original: Vec3, scale: Vector3) 
 }
 
 export function clampFurnitureScale(scale: Vector3, size: Vec3, original: Vec3) {
-  const values = [scale.x, scale.y, scale.z].map((value, axis) => {
-    const factor = Math.max(0.05, Math.min(20, value * size[axis] / Math.max(original[axis], 0.0001)))
-    return factor * original[axis] / Math.max(size[axis], 0.0001)
-  })
-  return scale.set(values[0], values[1], values[2])
+  // The sole Y handle drives a common multiplier, including at size limits.
+  const minimum = Math.max(...size.map((value, axis) => 0.05 * original[axis] / Math.max(value, 0.0001)))
+  const maximum = Math.min(...size.map((value, axis) => 20 * original[axis] / Math.max(value, 0.0001)))
+  return scale.setScalar(Math.max(minimum, Math.min(maximum, scale.y)))
 }

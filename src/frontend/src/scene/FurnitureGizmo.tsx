@@ -80,7 +80,7 @@ export function FurnitureGizmo({ target, height, size, originalSize, onDragStart
   />{size && originalSize && <PivotControls
     ref={scalingGizmo}
     autoTransform={false}
-    activeAxes={[true, true, true]}
+    activeAxes={[false, true, false]}
     disableAxes
     disableSliders
     disableRotations

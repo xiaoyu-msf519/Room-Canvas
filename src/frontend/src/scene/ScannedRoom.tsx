@@ -1,12 +1,27 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
-import { useFrame, useThree } from '@react-three/fiber'
-import { DoubleSide, MeshBasicMaterial, Shape, Vector3 } from 'three'
+import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
+import { DoubleSide, MeshBasicMaterial, MeshStandardMaterial, Shape, Vector3 } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import type { RoomSurface } from '../types/scene'
 import { createWallVisuals } from './wallVisibility'
 import { createWallTransparency } from './wallTransparency'
+import { surfaceGroupId, useSurfaceFinishStore, type SurfaceFinish } from '../state/useSurfaceFinishStore'
+import { createMetricWallGeometry, useSurfaceAppearance } from './surfaceAppearance'
+
+function selectSurface(event: ThreeEvent<MouseEvent>, id: string) {
+  const state = useRoomCanvasStore.getState()
+  if (state.mode !== 'edit' || state.isTransforming || event.delta > 3) return
+  event.stopPropagation()
+  state.setSelectedSurfaceId(id)
+}
 
 function Floor({ surface }: { surface: RoomSurface }) {
+  const sceneId = useRoomCanvasStore((state) => state.scan?.id)
+  const selected = useRoomCanvasStore((state) => state.mode === 'edit' && state.selectedSurfaceId === surface.id)
+  const finish = useSurfaceFinishStore((state) => sceneId ? state.rooms[sceneId]?.[surfaceGroupId(surface)] : undefined)
+  const material = useMemo(() => new MeshStandardMaterial({ side: DoubleSide }), [])
+  useSurfaceAppearance(material, surface, finish, selected)
+  useEffect(() => () => material.dispose(), [material])
   const shape = useMemo(() => {
     const corners = surface.polygonCorners ?? []
     const result = new Shape()
@@ -14,10 +29,16 @@ function Floor({ surface }: { surface: RoomSurface }) {
     result.closePath()
     return result
   }, [surface.polygonCorners])
-  return <mesh name="scan-floor" position={surface.position} quaternion={surface.rotation} receiveShadow>
+  return <mesh name="scan-floor" position={surface.position} quaternion={surface.rotation} material={material} receiveShadow onClick={(event) => selectSurface(event, surface.id)}>
     <shapeGeometry args={[shape]} />
-    <meshStandardMaterial color={surface.finish?.baseColor ?? '#a2abae'} roughness={surface.finish?.roughness ?? 0.95} side={DoubleSide} />
   </mesh>
+}
+
+function WallAppearance({ surface, reference, material, finish, selected, edit }: { surface: RoomSurface; reference: RoomSurface; material: MeshStandardMaterial; finish?: SurfaceFinish; selected: boolean; edit: boolean }) {
+  useSurfaceAppearance(material, surface, finish, selected)
+  const geometry = useMemo(() => createMetricWallGeometry(surface, reference), [surface, reference])
+  useEffect(() => () => geometry.dispose(), [geometry])
+  return <mesh name="scan-wall" visible={!edit} material={material} geometry={geometry} position={surface.position} quaternion={surface.rotation} receiveShadow castShadow />
 }
 
 function Ceiling({ surface, edit }: { surface: RoomSurface; edit: boolean }) {
@@ -37,6 +58,8 @@ function Ceiling({ surface, edit }: { surface: RoomSurface; edit: boolean }) {
 export function ScannedRoom() {
   const scan = useRoomCanvasStore((state) => state.scan)
   const edit = useRoomCanvasStore((state) => state.mode === 'edit')
+  const selectedId = useRoomCanvasStore((state) => state.selectedSurfaceId)
+  const finishes = useSurfaceFinishStore((state) => scan ? state.rooms[scan.id] : undefined)
   const { camera } = useThree()
   // Task polling replaces the manifest; geometry-identical polls must reuse GPU resources.
   const geometryKey = JSON.stringify(scan?.room.surfaces ?? [])
@@ -67,19 +90,21 @@ export function ScannedRoom() {
   useEffect(() => () => transparency.dispose(), [transparency])
   useEffect(() => () => shadowOnly.dispose(), [shadowOnly])
   if (!scan) return null
+  const selectedSurface = scan.room.surfaces.find((surface) => surface.id === selectedId)
+  const selectedGroup = selectedSurface ? surfaceGroupId(selectedSurface) : null
   return <group name="scanned-room">
     {scan.room.surfaces.filter((surface) => surface.kind === 'floor').map((surface) => <Floor key={surface.id} surface={surface} />)}
     {scan.room.surfaces.filter((surface) => surface.kind === 'ceiling').map((surface) => <Ceiling key={surface.id} surface={surface} edit={edit} />)}
-    {visuals.walls.map(({ surface, material }) =>
-      <mesh key={surface.id} name="scan-wall" visible={!edit} material={material} position={surface.position} quaternion={surface.rotation} receiveShadow castShadow>
-        <boxGeometry args={surface.size} />
-      </mesh>
-    )}
-    {edit && visuals.walls.map(({ surface }) => <mesh key={`shadow-${surface.id}`} name="scan-wall-shadow" material={shadowOnly} position={surface.position} quaternion={surface.rotation} castShadow>
+    {visuals.walls.map(({ surface, material }) => {
+      const group = surfaceGroupId(surface)
+      const reference = visuals.walls.find((wall) => surfaceGroupId(wall.surface) === group)!.surface
+      return <WallAppearance key={surface.id} surface={surface} reference={reference} material={material} finish={finishes?.[group]} selected={edit && selectedGroup === group} edit={edit} />
+    })}
+    {edit && visuals.walls.map(({ surface }) => <mesh key={`shadow-${surface.id}`} name="scan-wall-shadow" material={shadowOnly} position={surface.position} quaternion={surface.rotation} castShadow raycast={() => {}}>
       <boxGeometry args={surface.size} />
     </mesh>)}
     <group name="edit-wall-fragments" visible={edit}>
-      {transparency.meshes.map((mesh) => <primitive key={mesh.uuid} object={mesh} />)}
+      {transparency.meshes.map((mesh) => <primitive key={mesh.uuid} object={mesh} onClick={(event: ThreeEvent<MouseEvent>) => selectSurface(event, mesh.userData.wallId)} />)}
     </group>
   </group>
 }

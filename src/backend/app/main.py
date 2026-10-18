@@ -17,6 +17,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from .scan_routes import register_scan_routes
+from .catalog import router as catalog_router
 
 ROOT = Path(__file__).resolve().parents[3]
 TMP_ROOT = ROOT / "tmp"
@@ -58,6 +59,7 @@ class GenerationJob:
 
 
 app = FastAPI(title="RoomCanvas API", version="0.1.0")
+app.include_router(catalog_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'r
 import { ClipboardPaste, FileImage, PackageOpen, Plus, Ruler, Upload, X } from 'lucide-react'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import type { AssetSource, UploadedAsset } from '../types/scene'
+import { CATALOG_DRAG_TYPE, catalogImageFile } from '../types/catalog'
 
 interface AssetDrawerProps { onToast: (message: string) => void }
 interface Dimensions { width: string; depth: string; height: string }
@@ -46,8 +47,14 @@ export function AssetDrawer({ onToast }: AssetDrawerProps) {
 
   const handleFiles = (files: FileList | File[], source: AssetSource = 'file') => Array.from(files).forEach((file) => addFile(file, source))
 
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault(); setDragging(false)
+    const catalogId = event.dataTransfer.getData(CATALOG_DRAG_TYPE)
+    if (catalogId) {
+      try { addFile(await catalogImageFile(catalogId), 'drop') }
+      catch (error) { onToast(error instanceof Error ? error.message : '资源读取失败') }
+      return
+    }
     if (event.dataTransfer.files.length) { handleFiles(event.dataTransfer.files, 'drop'); return }
     if (event.dataTransfer.getData('text/uri-list') || event.dataTransfer.getData('text/html')) {
       onToast(imageUrlFromHtml(event.dataTransfer.getData('text/html')) ? '淘宝商品链接导入暂未开放，请拖入图片文件' : '链接导入暂未开放，请拖入图片文件')

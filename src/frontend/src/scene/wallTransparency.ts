@@ -1,9 +1,11 @@
-import { BoxGeometry, Matrix4, Mesh, Vector3 } from 'three'
+import { Matrix4, Mesh, Vector3 } from 'three'
 import type { MeshStandardMaterial } from 'three'
 import { CSG } from 'three-csg-ts'
 import { Node } from 'three-csg-ts/lib/esm/Node.js'
 import type { Polygon } from 'three-csg-ts/lib/esm/Polygon.js'
 import type { RoomSurface } from '../types/scene'
+import { createMetricWallGeometry } from './surfaceAppearance'
+import { surfaceGroupId } from '../state/useSurfaceFinishStore'
 
 interface WallVisual {
   surface: RoomSurface
@@ -16,7 +18,8 @@ export function createWallTransparency(walls: WallVisual[]) {
   const polygons = walls.flatMap(({ surface }, index) => {
     // Scan door subtraction can leave sub-micrometer slivers at floor level.
     if (surface.size.some((size) => size < 0.00001)) return []
-    const geometry = new BoxGeometry(...surface.size)
+    const reference = walls.find((wall) => surfaceGroupId(wall.surface) === surfaceGroupId(surface))!.surface
+    const geometry = createMetricWallGeometry(surface, reference)
     const pose = new Mesh(geometry)
     pose.position.fromArray(surface.position)
     pose.quaternion.fromArray(surface.rotation)

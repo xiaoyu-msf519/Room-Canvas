@@ -11,6 +11,8 @@ interface RoomCanvasState {
   scan: SceneManifest | null
   applyScan: (scan: SceneManifest) => void
   selectedId: string | null
+  selectedSurfaceId: string | null
+  setSelectedSurfaceId: (id: string | null) => void
   isTransforming: boolean
   uploadedAssets: UploadedAsset[]
   draggingAssetId: string | null
@@ -43,17 +45,19 @@ export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
     return {
       scan, roomColliders: scan.room.colliders ?? [],
       furnitureList: [...originals, ...state.furnitureList.filter((item) => item.kind === 'imported')],
-      ...(sameScene ? {} : { mode: 'edit', selectedId: null }),
+      ...(sameScene ? {} : { mode: 'edit', selectedId: null, selectedSurfaceId: null }),
     }
   }),
   selectedId: null,
+  selectedSurfaceId: null,
   isTransforming: false,
   uploadedAssets: [],
   draggingAssetId: null,
   placementPreview: null,
-  setMode: (mode) => set((state) => ({ mode, ...(mode === 'play' ? { selectedId: null } : { selectedId: state.selectedId }) })),
+  setMode: (mode) => set((state) => ({ mode, selectedId: mode === 'play' ? null : state.selectedId })),
   setShowWireframe: (showWireframe) => set({ showWireframe }),
-  setSelectedId: (selectedId) => set({ selectedId }),
+  setSelectedId: (selectedId) => set({ selectedId, selectedSurfaceId: null }),
+  setSelectedSurfaceId: (selectedSurfaceId) => set({ selectedSurfaceId, selectedId: null }),
   setIsTransforming: (isTransforming) => set({ isTransforming }),
   addUploadedAsset: (asset) => set((state) => state.uploadedAssets.some((current) => current.id === asset.id) ? state : ({ uploadedAssets: [asset, ...state.uploadedAssets] })),
   updateUploadedAsset: (id, patch) => set((state) => ({ uploadedAssets: state.uploadedAssets.map((asset) => asset.id === id ? { ...asset, ...patch } : asset) })),

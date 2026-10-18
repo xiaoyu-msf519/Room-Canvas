@@ -29,7 +29,7 @@ export function Lighting() {
     const current = directSolarDirection(state.year, Math.floor(state.day), state.minute, state.site, new Vector3())
     return { current, desired: current.clone(), previous: new Vector3(Infinity, Infinity, Infinity), turn: new Quaternion(), partial: new Quaternion(),
       night: new Color('#080e1b'), day: new Color('#b7d1db'), dusk: new Color('#d1947b'), warmSun: new Color('#ffae72'), whiteSun: new Color('#fff4e1'),
-      background: new Color(), fog: new Fog('#b7d1db', 24, 70), furniture: useRoomCanvasStore.getState().furnitureList, scan: useRoomCanvasStore.getState().scan, reducedMotion: false,
+      background: new Color(), fog: new Fog('#b7d1db', 24, 70), furniture: useRoomCanvasStore.getState().furnitureList, room: useRoomCanvasStore.getState().scan?.room, reducedMotion: false, shadowElapsed: 1,
     }
   }, [])
   useEffect(() => {
@@ -77,11 +77,14 @@ export function Lighting() {
     rig.background.lerp(rig.dusk, twilight)
     rig.fog.color.copy(rig.background)
     const state = useRoomCanvasStore.getState()
-    if ((sunlight > 0 && rig.previous.distanceToSquared(rig.current) > 1e-8) || state.isTransforming || state.furnitureList !== rig.furniture || state.scan !== rig.scan) {
+    rig.shadowElapsed += delta
+    const changed = (sunlight > 0 && rig.previous.distanceToSquared(rig.current) > 1e-8) || state.isTransforming
+    if ((changed && rig.shadowElapsed >= 1 / 20) || state.furnitureList !== rig.furniture || state.scan?.room !== rig.room) {
       gl.shadowMap.needsUpdate = true
       rig.previous.copy(rig.current)
+      rig.shadowElapsed = 0
     }
-    rig.furniture = state.furnitureList; rig.scan = state.scan
+    rig.furniture = state.furnitureList; rig.room = state.scan?.room
   })
   return <>
     <ambientLight ref={ambient} color="#dce5ee" />

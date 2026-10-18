@@ -1,57 +1,20 @@
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, Suspense, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useGLTF } from '@react-three/drei'
 import { useThree } from '@react-three/fiber'
-import type { Object3D } from 'three'
-import { Box3, Group, Vector3 } from 'three'
+import { Group } from 'three'
 import { useRoomCanvasStore } from '../state/useRoomCanvasStore'
 import type { FurnitureItem, Vec3 } from '../types/scene'
 import { groundRotation } from './furnitureTransform'
 import { FurnitureGizmo } from './FurnitureGizmo'
-
-function cloneForDisplay(source: Object3D, ghost: boolean) {
-  const clone = source.clone(true)
-  clone.traverse((child) => {
-    if (!('isMesh' in child) || !child.isMesh) return
-    const mesh = child as Object3D & { material?: any }
-    child.castShadow = true
-    child.receiveShadow = true
-    if (!mesh.material) return
-    mesh.material = Array.isArray(mesh.material) ? mesh.material.map((material) => material.clone()) : mesh.material.clone()
-    if (ghost) {
-      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-      materials.forEach((material) => {
-        material.transparent = true
-        material.opacity = 0.34
-        material.depthWrite = false
-        if ('color' in material) material.color.set('#83e0ee')
-      })
-    }
-  })
-  return clone
-}
+import { createModelDisplay } from './modelDisplay'
 
 function ModelObject({ modelUrl, size }: { modelUrl: string; size: Vec3 }) {
   const gl = useThree((state) => state.gl)
   const { scene } = useGLTF(modelUrl)
-  const fit = useMemo(() => {
-    // Keep the GLB's own node transforms (including the real-scale wrapper),
-    // but measure them inside an identity container. The returned inner offset
-    // puts the visual bounds center exactly on the furniture root origin.
-    const display = cloneForDisplay(scene, false)
-    const measureRoot = new Group()
-    measureRoot.add(display)
-    measureRoot.updateMatrixWorld(true)
-    const bounds = new Box3().setFromObject(measureRoot)
-    const center = bounds.getCenter(new Vector3())
-    const extents = bounds.getSize(new Vector3())
-    return {
-      display,
-      center,
-      scale: [size[0] / Math.max(extents.x, 0.0001), size[1] / Math.max(extents.y, 0.0001), size[2] / Math.max(extents.z, 0.0001)] as Vec3,
-    }
-  }, [scene, size])
+  const fit = useMemo(() => createModelDisplay(scene), [scene])
+  const scale: Vec3 = [size[0] / Math.max(fit.extents.x, 0.0001), size[1] / Math.max(fit.extents.y, 0.0001), size[2] / Math.max(fit.extents.z, 0.0001)]
   useEffect(() => { gl.shadowMap.needsUpdate = true }, [fit, gl])
-  return <group scale={fit.scale}><group position={[-fit.center.x, -fit.center.y, -fit.center.z]}><primitive object={fit.display} /></group></group>
+  return <group scale={scale}><group position={[-fit.center.x, -fit.center.y, -fit.center.z]}><primitive object={fit.display} dispose={null} /></group></group>
 }
 
 function LowProxy({ size }: { size: Vec3 }) {
@@ -71,15 +34,14 @@ function FurnitureVisual({ modelUrl, size }: { modelUrl?: string; size: Vec3 }) 
   return <Suspense fallback={<LowProxy size={size} />}>{modelUrl ? <ModelObject modelUrl={modelUrl} size={size} /> : <LowProxy size={size} />}</Suspense>
 }
 
-function FurnitureObject({ item }: { item: FurnitureItem }) {
-  const selectedId = useRoomCanvasStore((state) => state.selectedId)
+const FurnitureObject = memo(function FurnitureObject({ item }: { item: FurnitureItem }) {
+  const selected = useRoomCanvasStore((state) => state.selectedId === item.id)
   const mode = useRoomCanvasStore((state) => state.mode)
   const setSelectedId = useRoomCanvasStore((state) => state.setSelectedId)
   const updateFurniture = useRoomCanvasStore((state) => state.updateFurniture)
   const setIsTransforming = useRoomCanvasStore((state) => state.setIsTransforming)
   const groupRef = useRef<Group>(null)
   const initialized = useRef(false)
-  const selected = selectedId === item.id
 
   useEffect(() => () => {
     setIsTransforming(false)
@@ -127,7 +89,7 @@ function FurnitureObject({ item }: { item: FurnitureItem }) {
       onDragEnd={commitTransform}
     />}
   </>
-}
+})
 
 function PlacementPreview({ asset }: { asset: { dimensionsMm?: { width: number; depth: number; height: number } } }) {
   const placementPreview = useRoomCanvasStore((state) => state.placementPreview)

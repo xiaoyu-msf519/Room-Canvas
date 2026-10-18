@@ -11,6 +11,7 @@ import { FurnitureModels } from './FurnitureModels'
 import { Lighting } from './Lighting'
 import { ScannedRoom } from './ScannedRoom'
 import { createWalkFloor } from './navigation'
+import { AdaptiveResolution } from './AdaptiveResolution'
 
 function SceneViewportBridge({ cameraRef, rendererRef }: { cameraRef: MutableRefObject<Camera | null>; rendererRef: MutableRefObject<WebGLRenderer | null> }) {
   const { camera, gl } = useThree()
@@ -75,6 +76,7 @@ export function SceneCanvas() {
       <Canvas
         shadows
         dpr={mode === 'play' ? [1, 2] : [1, 1.35]}
+        performance={{ min: 0.7, max: 1, debounce: 250 }}
         camera={{ position: [4.8, 4.4, 6.2], fov: 52, near: 0.05, far: 100 }}
         onPointerMissed={() => {
           if (!useRoomCanvasStore.getState().isTransforming) setSelectedId(null)
@@ -83,6 +85,7 @@ export function SceneCanvas() {
       >
         <color attach="background" args={["#c7d5db"]} />
         <Lighting />
+        <AdaptiveResolution />
         <EmptyRoom />
         <ScannedRoom />
         <ScanCameraFit controlsRef={controlsRef} />

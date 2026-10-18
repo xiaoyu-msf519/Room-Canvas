@@ -57,6 +57,9 @@ export function createWallTransparency(walls: WallVisual[]) {
   const lastCamera = new Vector3(Infinity, Infinity, Infinity)
   return {
     meshes,
+    syncOpaqueWalls(edit: boolean) {
+      for (const mesh of meshes) mesh.visible = edit && (mesh.material as MeshStandardMaterial).opacity < 1
+    },
     update(camera: Vector3) {
       if (camera.equals(lastCamera)) return
       lastCamera.copy(camera)

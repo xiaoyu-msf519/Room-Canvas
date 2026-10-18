@@ -1,6 +1,6 @@
 import { Box3, Matrix4, MeshStandardMaterial, Quaternion, Ray, Vector3 } from 'three'
 import { Easing } from 'three/examples/jsm/libs/tween.module.js'
-import type { Triangle } from 'three'
+import type { Mesh, Triangle } from 'three'
 import type { RoomSurface, SceneCollider } from '../types/scene'
 import { createWalkFloor } from './navigation'
 
@@ -78,11 +78,15 @@ export function createWallOccluder(surface: RoomSurface) {
   const bounds = new Box3(half.clone().negate(), half)
   const clearance = bounds.clone().expandByScalar(0.08)
   const origin = new Vector3(), end = new Vector3(), direction = new Vector3(), hit = new Vector3()
+  const lastCamera = new Vector3(Infinity, Infinity, Infinity)
   const ray = new Ray()
   return {
     containsTarget(point: Vector3) { return clearance.containsPoint(end.copy(point).applyMatrix4(inverse)) },
     blocks(camera: Vector3, target: Vector3) {
-      origin.copy(camera).applyMatrix4(inverse)
+      if (!lastCamera.equals(camera)) {
+        lastCamera.copy(camera)
+        origin.copy(camera).applyMatrix4(inverse)
+      }
       end.copy(target).applyMatrix4(inverse)
       // An endpoint on/in the wall is not interior content hidden behind it.
       if (clearance.containsPoint(end)) return false
@@ -141,6 +145,8 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
     facing: createWallFacing(surface, floor),
     occluder: createWallOccluder(surface),
     material: new MeshStandardMaterial({ color: surface.finish?.baseColor ?? '#d6dadb', roughness: surface.finish?.roughness ?? 0.92 }),
+    opaqueMaterial: new MeshStandardMaterial({ color: surface.finish?.baseColor ?? '#d6dadb', roughness: surface.finish?.roughness ?? 0.92 }),
+    solid: null as Mesh | null,
     fade: { from: 1, target: 1, elapsed: WALL_FADE_SECONDS },
   }))
   const interiorTargets = createInteriorTargets(surfaces, floor, walls.map((wall) => wall.occluder))
@@ -154,7 +160,8 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
     update(camera: Vector3, edit: boolean, furniture: SceneCollider[] = NO_FURNITURE) {
       if (camera.equals(lastCamera) && edit === lastEdit && furniture === lastFurniture) return
       const modeChanged = edit !== lastEdit
-      if (furniture !== lastFurniture) furnitureTargets = createFurnitureTargets(furniture, floor)
+      if (!edit && !modeChanged) return
+      if (edit && (modeChanged || furniture !== lastFurniture)) furnitureTargets = createFurnitureTargets(furniture, floor)
       lastCamera.copy(camera)
       lastEdit = edit
       lastFurniture = furniture
@@ -193,6 +200,6 @@ export function createWallVisuals(surfaces: RoomSurface[]) {
         wall.material.opacity = opacity
       }
     },
-    dispose() { walls.forEach((wall) => wall.material.dispose()) },
+    dispose() { walls.forEach((wall) => { wall.material.dispose(); wall.opaqueMaterial.dispose() }) },
   }
 }

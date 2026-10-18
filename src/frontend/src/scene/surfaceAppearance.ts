@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { BoxGeometry, Color, Quaternion, RepeatWrapping, SRGBColorSpace, Vector3 } from 'three'
 import type { MeshStandardMaterial, Texture } from 'three'
 import type { RoomSurface } from '../types/scene'
@@ -33,7 +33,8 @@ export function configureSurfaceTexture(texture: Texture, finish: SurfaceFinish)
   texture.needsUpdate = true
 }
 
-export function useSurfaceAppearance(material: MeshStandardMaterial, surface: RoomSurface, finish: SurfaceFinish | undefined, selected: boolean) {
+export function useSurfaceAppearance(target: MeshStandardMaterial | MeshStandardMaterial[], surface: RoomSurface, finish: SurfaceFinish | undefined, selected: boolean) {
+  const materials = useMemo(() => Array.isArray(target) ? target : [target], [target])
   const [loaded, setLoaded] = useState<{ url: string; texture: Texture } | null>(null)
   useEffect(() => {
     setLoaded(null)
@@ -53,17 +54,23 @@ export function useSurfaceAppearance(material: MeshStandardMaterial, surface: Ro
   useLayoutEffect(() => {
     if (loaded && finish && loaded.url === finish.textureUrl) {
       configureSurfaceTexture(loaded.texture, finish)
-      material.map = loaded.texture
-      material.color.set('#ffffff')
-    } else {
-      material.map = null
-      material.color.set(surface.finish?.baseColor ?? (surface.kind === 'floor' ? '#a2abae' : '#d6dadb'))
     }
-    material.roughness = surface.finish?.roughness ?? (surface.kind === 'floor' ? 0.95 : 0.92)
-    material.needsUpdate = true
-  }, [loaded, finish, material, surface.finish, surface.kind])
+    for (const material of materials) {
+      if (loaded && finish && loaded.url === finish.textureUrl) {
+        material.map = loaded.texture
+        material.color.set('#ffffff')
+      } else {
+        material.map = null
+        material.color.set(surface.finish?.baseColor ?? (surface.kind === 'floor' ? '#a2abae' : '#d6dadb'))
+      }
+      material.roughness = surface.finish?.roughness ?? (surface.kind === 'floor' ? 0.95 : 0.92)
+      material.needsUpdate = true
+    }
+  }, [loaded, finish, materials, surface.finish, surface.kind])
   useLayoutEffect(() => {
-    material.emissive.copy(new Color(selected ? '#216175' : '#000000'))
-    material.emissiveIntensity = selected ? 0.25 : 0
-  }, [material, selected])
+    for (const material of materials) {
+      material.emissive.copy(new Color(selected ? '#216175' : '#000000'))
+      material.emissiveIntensity = selected ? 0.25 : 0
+    }
+  }, [materials, selected])
 }

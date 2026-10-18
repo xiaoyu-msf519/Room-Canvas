@@ -38,13 +38,19 @@ export const useRoomCanvasStore = create<RoomCanvasState>((set) => ({
   scan: null,
   applyScan: (scan) => set((state) => {
     const sameScene = state.scan?.id === scan.id
+    if (sameScene && JSON.stringify(state.scan) === JSON.stringify(scan)) return state
     const originals = scan.furniture.map((item) => {
       const current = sameScene ? state.furnitureList.find((entry) => entry.id === item.id) : null
-      return current ? { ...item, position: current.position, rotation: current.rotation, size: current.size } : item
+      if (!current) return item
+      const merged = { ...item, position: current.position, rotation: current.rotation, size: current.size }
+      return JSON.stringify(merged) === JSON.stringify(current) ? current : merged
     })
+    const nextFurniture = [...originals, ...state.furnitureList.filter((item) => item.kind === 'imported')]
+    const furnitureList = nextFurniture.length === state.furnitureList.length && nextFurniture.every((item, index) => item === state.furnitureList[index]) ? state.furnitureList : nextFurniture
+    const room = sameScene && JSON.stringify(state.scan?.room) === JSON.stringify(scan.room) ? state.scan!.room : scan.room
     return {
-      scan, roomColliders: scan.room.colliders ?? [],
-      furnitureList: [...originals, ...state.furnitureList.filter((item) => item.kind === 'imported')],
+      scan: room === scan.room ? scan : { ...scan, room }, roomColliders: room.colliders ?? [],
+      furnitureList,
       ...(sameScene ? {} : { mode: 'edit', selectedId: null, selectedSurfaceId: null }),
     }
   }),

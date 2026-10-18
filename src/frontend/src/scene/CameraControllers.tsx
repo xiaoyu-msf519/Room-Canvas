@@ -43,6 +43,7 @@ export function EditCameraController({ controlsRef }: { controlsRef: ControlsRef
     <OrbitControls
       ref={controlsRef}
       makeDefault
+      regress
       enabled={mode === 'edit'}
       enableDamping={false}
       enableZoom={mode === 'edit'}
@@ -65,6 +66,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
   const floor = useMemo(() => createWalkFloor(surfaces ?? []), [surfaces])
   const obstacles = useMemo(() => createWalkObstacles([...roomColliders, ...furnitureList]), [furnitureList, roomColliders])
   const { camera, gl } = useThree()
+  const regress = useThree((state) => state.performance.regress)
   const keys = useRef(new Set<string>())
   const yaw = useRef(0)
   const pitch = useRef(-0.1)
@@ -260,6 +262,7 @@ export function PlayCameraController({ controlsRef }: { controlsRef: ControlsRef
 
     const forward = Number(keys.current.has('w') || keys.current.has('arrowup')) - Number(keys.current.has('s') || keys.current.has('arrowdown'))
     const strafe = Number(keys.current.has('d') || keys.current.has('arrowright')) - Number(keys.current.has('a') || keys.current.has('arrowleft'))
+    if (lookDeltaX || lookDeltaY || forward || strafe) regress()
     if (!forward && !strafe) return
     const speed = keys.current.has('shift') ? 4.6 : 2.8
     const length = Math.hypot(forward, strafe) || 1

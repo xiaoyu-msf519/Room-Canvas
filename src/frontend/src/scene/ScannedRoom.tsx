@@ -34,11 +34,16 @@ function Floor({ surface }: { surface: RoomSurface }) {
   </mesh>
 }
 
-function WallAppearance({ surface, reference, material, finish, selected, edit }: { surface: RoomSurface; reference: RoomSurface; material: MeshStandardMaterial; finish?: SurfaceFinish; selected: boolean; edit: boolean }) {
-  useSurfaceAppearance(material, surface, finish, selected)
+function WallAppearance({ wall, reference, finish, selected, edit }: { wall: ReturnType<typeof createWallVisuals>['walls'][number]; reference: RoomSurface; finish?: SurfaceFinish; selected: boolean; edit: boolean }) {
+  const { surface, material, opaqueMaterial } = wall
+  const materials = useMemo(() => [material, opaqueMaterial], [material, opaqueMaterial])
+  useSurfaceAppearance(materials, surface, finish, selected)
   const geometry = useMemo(() => createMetricWallGeometry(surface, reference), [surface, reference])
   useEffect(() => () => geometry.dispose(), [geometry])
-  return <mesh name="scan-wall" visible={!edit} material={material} geometry={geometry} position={surface.position} quaternion={surface.rotation} receiveShadow castShadow />
+  return <>
+    <mesh name="scan-wall" visible={!edit} material={material} geometry={geometry} position={surface.position} quaternion={surface.rotation} receiveShadow castShadow />
+    <mesh name="scan-wall-solid" ref={(mesh) => { wall.solid = mesh }} visible={edit && material.opacity === 1} material={opaqueMaterial} geometry={geometry} position={surface.position} quaternion={surface.rotation} receiveShadow onClick={(event) => selectSurface(event, surface.id)} />
+  </>
 }
 
 function Ceiling({ surface, edit }: { surface: RoomSurface; edit: boolean }) {
@@ -73,11 +78,16 @@ export function ScannedRoom() {
     visuals.update(cameraPosition, edit, useRoomCanvasStore.getState().furnitureList)
     if (edit) transparency.update(cameraPosition)
   }
+  const syncWallPasses = () => {
+    for (const wall of visuals.walls) if (wall.solid) wall.solid.visible = edit && wall.material.opacity === 1
+    transparency.syncOpaqueWalls(edit)
+  }
   useFrame((_, delta) => {
     updateWalls()
     visuals.advance(delta, reducedMotion.current)
+    syncWallPasses()
   })
-  useLayoutEffect(updateWalls, [edit, camera, visuals, transparency, cameraPosition])
+  useLayoutEffect(() => { updateWalls(); syncWallPasses() }, [edit, camera, visuals, transparency, cameraPosition])
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -95,10 +105,11 @@ export function ScannedRoom() {
   return <group name="scanned-room">
     {scan.room.surfaces.filter((surface) => surface.kind === 'floor').map((surface) => <Floor key={surface.id} surface={surface} />)}
     {scan.room.surfaces.filter((surface) => surface.kind === 'ceiling').map((surface) => <Ceiling key={surface.id} surface={surface} edit={edit} />)}
-    {visuals.walls.map(({ surface, material }) => {
+    {visuals.walls.map((wall) => {
+      const { surface } = wall
       const group = surfaceGroupId(surface)
       const reference = visuals.walls.find((wall) => surfaceGroupId(wall.surface) === group)!.surface
-      return <WallAppearance key={surface.id} surface={surface} reference={reference} material={material} finish={finishes?.[group]} selected={edit && selectedGroup === group} edit={edit} />
+      return <WallAppearance key={surface.id} wall={wall} reference={reference} finish={finishes?.[group]} selected={edit && selectedGroup === group} edit={edit} />
     })}
     {edit && visuals.walls.map(({ surface }) => <mesh key={`shadow-${surface.id}`} name="scan-wall-shadow" material={shadowOnly} position={surface.position} quaternion={surface.rotation} castShadow raycast={() => {}}>
       <boxGeometry args={surface.size} />

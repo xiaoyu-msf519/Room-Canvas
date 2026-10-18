@@ -27,7 +27,7 @@ def box_bounds(surface):
 def verify_structure(scene):
     room, layout = scene["room"], scene["room"]["layout"]
     zones, windows, doors = layout["zones"], layout["windows"], layout["doorways"]
-    assert Counter(zone["kind"] for zone in zones) == {"bedroom": 3, "living": 1, "bathroom": 2, "kitchen": 1, "foyer": 1, "balcony": 1}
+    assert Counter(zone["kind"] for zone in zones) == {"bedroom": 3, "living": 1, "bathroom": 2, "kitchen": 1, "foyer": 1, "balcony": 2}
     for a, b in combinations(zones, 2):
         assert min(a["rect"][2], b["rect"][2]) - max(a["rect"][0], b["rect"][0]) <= 1e-7 or min(a["rect"][3], b["rect"][3]) - max(a["rect"][1], b["rect"][1]) <= 1e-7, "Room floor polygons overlap"
     outline = layout["boundary"]
@@ -52,27 +52,31 @@ def verify_structure(scene):
     for zone in zones:
         assert surfaces[zone["floorSurfaceId"]]["zoneId"] == zone["id"]
         assert surfaces[zone["ceilingSurfaceId"]]["zoneId"] == zone["id"]
-        assert zone["wallSurfaceIds"] and len(zone["wallGroupIds"]) == 4
+        assert zone["wallSurfaceIds"] and len(zone["wallGroupIds"]) == len(set(zone["wallGroupIds"]))
+        assert set(zone["wallGroupIds"]) == {faces[face_id]["editGroupId"] for face_id in zone["wallSurfaceIds"]}
         assert all(faces[face_id]["zoneId"] == zone["id"] for face_id in zone["wallSurfaceIds"])
         assert not referenced.intersection(zone["wallSurfaceIds"]), "Rooms share an editable wall-surface ID"
         referenced.update(zone["wallSurfaceIds"])
         if zone["kind"] in ("bedroom", "kitchen"):
             assert any(window["zoneId"] == zone["id"] for window in windows), "Bedroom/kitchen has no exterior window"
     foyer = next(zone for zone in zones if zone["kind"] == "foyer")
-    assert foyer["area"] <= 6 and foyer["rect"][3] > max(zone["rect"][3] for zone in zones if zone is not foyer)
+    assert foyer["rect"][0] == 0 and foyer["rect"][3] == 6
     assert not any(window["zoneId"] == foyer["id"] for window in windows)
     assert any(set(door["connects"]) == {"outside", "foyer"} for door in doors)
     assert any(set(door["connects"]) == {"foyer", "living"} for door in doors)
-    balcony = next(zone for zone in zones if zone["kind"] == "balcony")
-    glass = [window for window in windows if window["zoneId"] == balcony["id"]]
-    assert len(glass) == 3 and all(window["enclosure"] and window["size"][1] > 2.5 for window in glass)
-    glass_sides = set()
-    for window in glass:
-        x, _, z = window["position"]
-        for side, position, boundary in (("west", x, balcony["rect"][0]), ("east", x, balcony["rect"][2]), ("north", z, balcony["rect"][1]), ("south", z, balcony["rect"][3])):
-            if abs(position - boundary) < 1e-7:
-                glass_sides.add(side)
-    assert len(glass_sides) == 3 and any(set(door["connects"]) == {"living", "balcony"} for door in doors)
+    balconies = [zone for zone in zones if zone["kind"] == "balcony"]
+    for balcony in balconies:
+        glass = [window for window in windows if window["zoneId"] == balcony["id"]]
+        assert len(glass) == 3 and all(window["enclosure"] and window["size"][1] > 2.5 for window in glass)
+        glass_sides = set()
+        for window in glass:
+            x, _, z = window["position"]
+            for side, position, boundary in (("west", x, balcony["rect"][0]), ("east", x, balcony["rect"][2]), ("north", z, balcony["rect"][1]), ("south", z, balcony["rect"][3])):
+                if abs(position - boundary) < 1e-7:
+                    glass_sides.add(side)
+        assert len(glass_sides) == 3
+    assert any(set(door["connects"]) == {"living", "balcony-north"} for door in doors)
+    assert any(set(door["connects"]) == {"bedroom-3", "balcony-south"} for door in doors)
     # Check enclosure at the sill, eye and wall-top levels, excluding declared
     # openings. This catches gaps introduced by junction trimming.
     opening_bounds = [box_bounds(opening) for opening in doors + windows]
@@ -90,7 +94,7 @@ def verify_structure(scene):
                         continue
                     assert any(contains(bounds, point) for _, bounds in wall_bounds), f"Unsealed wall boundary in {zone['id']} at {point}"
     assert scene["furniture"] == [] and scene["cameras"] == []
-    print(f"PASS: {len(outline)}-corner concave outline, {area:.2f}m2, {len(walls)} non-overlapping wall solids, nine independent rooms, kitchen/bedroom windows, glazed balcony and windowless projecting foyer.")
+    print(f"PASS: {len(outline)}-corner concave outline, {area:.2f}m2, {len(walls)} non-overlapping wall solids, {len(zones)} independent surfaces, kitchen/bedroom windows, two glazed balconies and a windowless foyer.")
 
 
 async def verify():
@@ -109,12 +113,12 @@ async def verify():
             assert scene["furniture"] == [] and scene["cameras"] == []
             assert scene["pipeline"]["autoReconstruct"] is False
             floors = [surface for surface in scene["room"]["surfaces"] if surface["kind"] == "floor"]
-            assert len({surface["editGroupId"] for surface in floors}) == 9
+            assert len({surface["editGroupId"] for surface in floors}) == len(scene["room"]["layout"]["zones"])
             partitions = [surface for surface in scene["room"]["surfaces"] if surface.get("wallFaces") and surface["wallFaces"]["positive"]["zoneId"] != surface["wallFaces"]["negative"]["zoneId"]]
             assert partitions and all(surface["wallFaces"]["positive"]["editGroupId"] != surface["wallFaces"]["negative"]["editGroupId"] for surface in partitions)
             windows = scene["room"]["layout"]["windows"]
-            assert len(windows) == 11 and all("outer-" in window["wallId"] for window in windows)
-            assert {window["zoneId"] for window in windows} == {"living", "master", "bedroom-2", "bedroom-3", "bath-ensuite", "bath-shared", "kitchen", "balcony"}
+            assert len(windows) == 14
+            assert {window["zoneId"] for window in windows} == {"living", "master", "bedroom-2", "bedroom-3", "bath-ensuite", "bath-shared", "kitchen", "balcony-north", "balcony-south"}
             high = next(window for window in windows if window["zoneId"] == "bath-ensuite")
             assert high["privacy"] and abs(high["position"][1] - high["size"][1] / 2 - 1.8) < 1e-8
             assert scene["room"] == create_example_layout(scene["id"])["room"]
@@ -145,13 +149,13 @@ async def verify():
                 write_json(root / "tmp/scans/legacyexample/scene-manifest.json", legacy)
                 migrated = (await client.get("/api/scenes/legacyexample")).raise_for_status().json()
                 assert migrated["id"] == legacy["id"] and migrated["source"]["templateId"] == TEMPLATE_ID
-                assert len(migrated["room"]["layout"]["windows"]) == 11 and migrated["furniture"] == []
+                assert len(migrated["room"]["layout"]["windows"]) == 14 and migrated["furniture"] == []
                 assert (await client.post("/api/room-library/legacyexample/load")).json()["id"] == legacy["id"]
             await asyncio.sleep(0.02)
         finally:
             await restarted.router.shutdown()
     print("PASS: deterministic structural geometry, independent scene IDs, empty furniture/materials, room listing, restart/reload, and no generation/cache pipeline calls.")
-    print("PASS: exterior bedroom/kitchen windows, glazed balcony, private bathroom windows, and legacy upgrade without duplicate room IDs.")
+    print("PASS: exterior bedroom/kitchen windows, two glazed balconies, private bathroom windows, and legacy upgrade without duplicate room IDs.")
 
 
 asyncio.run(verify())

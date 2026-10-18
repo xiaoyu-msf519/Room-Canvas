@@ -27,6 +27,28 @@ MODEL_ROOT = TMP_ROOT / "models"
 RODIN_BASE_URL = "https://api.hyper3d.com/api/v2"
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
 
+
+def _load_local_env() -> None:
+    """Load ignored local settings without replacing explicit process env."""
+    for path in (ROOT / "src/backend/.env", ROOT / ".env"):
+        if not path.is_file():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key, value = key.strip(), value.strip().strip("\"'")
+            if key and value:
+                os.environ.setdefault(key, value)
+
+
+_load_local_env()
+
 for folder in (UPLOAD_ROOT, JOB_ROOT, MODEL_ROOT):
     folder.mkdir(parents=True, exist_ok=True)
 

@@ -3,13 +3,14 @@ from __future__ import annotations
 from collections import defaultdict
 import math
 
-TEMPLATE_ID = "three-bedroom-two-bath-v4"
-LEGACY_TEMPLATE_IDS = {f"three-bedroom-two-bath-v{version}" for version in (1, 2, 3)}
-TITLE = "示例户型 · 三室一厅两卫（主卧套卫）"
+TEMPLATE_ID = "three-bedroom-two-bath-v6"
+LEGACY_TEMPLATE_IDS = {f"three-bedroom-two-bath-v{version}" for version in (1, 2, 3, 4, 5)}
+TITLE = "参考户型 · 三室一厅两卫（图纸布局）"
 HEIGHT = 2.8
 THICKNESS = 0.14
 DOOR_HEIGHT = 2.2
 EPSILON = 1e-7
+PLAN_SCALE = 1.0
 
 
 def _boundary_runs(zones: list[dict]) -> list[dict]:
@@ -93,17 +94,19 @@ def _subtract_interval(intervals: list[tuple[float, float]], left: float, right:
 
 def create_example_layout(scene_id: str) -> dict:
     """A fixed stepped residential plan, with no inference or generation jobs."""
-    zones = [
-        {"id": "living", "name": "客厅", "kind": "living", "rect": [-3.5, -1, 2, 4]},
-        {"id": "master", "name": "主卧", "kind": "bedroom", "rect": [2, 0.5, 6, 4.5]},
-        {"id": "bedroom-2", "name": "次卧", "kind": "bedroom", "rect": [-6, -4.5, -2, -1]},
-        {"id": "bedroom-3", "name": "第三卧室", "kind": "bedroom", "rect": [-2, -5, 2, -1]},
-        {"id": "bath-shared", "name": "公共卫生间", "kind": "bathroom", "rect": [2, -2, 4, 0.5]},
-        {"id": "bath-ensuite", "name": "主卧卫生间", "kind": "bathroom", "rect": [4, -2, 6, 0.5]},
-        {"id": "kitchen", "name": "厨房", "kind": "kitchen", "rect": [-6, -1, -3.5, 1.2]},
-        {"id": "foyer", "name": "玄关", "kind": "foyer", "rect": [-3, 4, -1, 5.8]},
-        {"id": "balcony", "name": "封闭阳台", "kind": "balcony", "rect": [-5.3, 2, -3.5, 4]},
+    base_zones = [
+        {"id": "living", "name": "客餐厅", "kind": "living", "rect": [8.2, 0, 12.5, 9]},
+        {"id": "master", "name": "主卧", "kind": "bedroom", "rect": [1.8, 0, 5.8, 4.6]},
+        {"id": "bedroom-2", "name": "次卧", "kind": "bedroom", "rect": [0, 6, 3.3, 10]},
+        {"id": "bedroom-3", "name": "次卧", "kind": "bedroom", "rect": [5.8, 0, 8.2, 4.6]},
+        {"id": "bath-shared", "name": "公共卫生间", "kind": "bathroom", "rect": [3.3, 6, 5.3, 8.72]},
+        {"id": "bath-ensuite", "name": "主卧套卫", "kind": "bathroom", "rect": [0, 2, 1.8, 4.6]},
+        {"id": "kitchen", "name": "厨房", "kind": "kitchen", "rect": [5.3, 6, 8.2, 9]},
+        {"id": "foyer", "name": "客餐厅过厅", "kind": "foyer", "rect": [0, 4.6, 8.2, 6]},
+        {"id": "balcony-north", "name": "北侧封闭阳台", "kind": "balcony", "rect": [8.2, 9, 9.82, 10]},
+        {"id": "balcony-south", "name": "南侧封闭阳台", "kind": "balcony", "rect": [5.8, -1, 8.2, 0]},
     ]
+    zones = [{**zone, "rect": [round(value * PLAN_SCALE, 6) for value in zone["rect"]]} for zone in base_zones]
     zone_by_id = {zone["id"]: zone for zone in zones}
     runs = _boundary_runs(zones)
     for run in runs:
@@ -114,7 +117,7 @@ def create_example_layout(scene_id: str) -> dict:
     for zone in zones:
         x0, z0, x1, z1 = zone["rect"]
         width, depth = x1 - x0, z1 - z0
-        zone.update(center=[(x0 + x1) / 2, 0, (z0 + z1) / 2], area=round(width * depth, 4), wallSurfaceIds=[], wallGroupIds=[])
+        zone.update(center=[(x0 + x1) / 2, 0, (z0 + z1) / 2], area=round(width * depth, 6), wallSurfaceIds=[], wallGroupIds=[])
         corners = [[-width / 2, -depth / 2, 0], [width / 2, -depth / 2, 0], [width / 2, depth / 2, 0], [-width / 2, depth / 2, 0]]
         for kind, elevation in (("floor", 0), ("ceiling", HEIGHT)):
             surface_id = f"{scene_id}-example-{zone['id']}-{kind}"
@@ -130,14 +133,20 @@ def create_example_layout(scene_id: str) -> dict:
 
     def add_opening(opening_id, axis, fixed, center, width, bottom, top, *, connects=None, zone_id=None, privacy=False, enclosure=False):
         owners = set(connects or [zone_id]) - {"outside"}
-        candidates = [run for run in runs if run["axis"] == axis and run["fixed"] == fixed
-                      and {value for value in (run["positive"], run["negative"]) if value} == owners
+        def owns(run):
+            run_owners = {value for value in (run["positive"], run["negative"]) if value}
+            # A window can be placed on the wall shared with an enclosed
+            # balcony; a doorway still requires an exact pair of rooms.
+            return owners == run_owners if connects else owners <= run_owners
+        candidates = [run for run in runs if run["axis"] == axis and abs(run["fixed"] - fixed) <= EPSILON
+                      and owns(run)
                       and center - width / 2 >= run["start"] + THICKNESS / 2 - EPSILON
                       and center + width / 2 <= run["end"] - THICKNESS / 2 + EPSILON]
         if len(candidates) != 1 or not 0 <= bottom < top <= HEIGHT:
             raise ValueError(f"Opening {opening_id} has no valid room boundary")
         run = candidates[0]
-        if (zone_id or "outside" in (connects or [])) and not run["outside"]:
+        balcony_transition = zone_id and any(owner and owner.startswith("balcony-") for owner in (run["positive"], run["negative"]))
+        if (zone_id or "outside" in (connects or [])) and not run["outside"] and not balcony_transition:
             raise ValueError("Exterior opening is on an interior partition")
         for prior in run["apertures"]:
             if abs(center - prior["center"]) < (width + prior["width"]) / 2 - EPSILON:
@@ -155,32 +164,79 @@ def create_example_layout(scene_id: str) -> dict:
         run["apertures"].append({"center": center, "width": width, "bottom": bottom, "top": top})
 
     for opening_id, axis, fixed, center, width, connects in [
-        ("entrance", "x", 5.8, -2, 1.0, ["outside", "foyer"]),
-        ("foyer", "x", 4, -2, 1.1, ["foyer", "living"]),
-        ("bedroom-2", "x", -1, -2.75, 1.0, ["living", "bedroom-2"]),
-        ("bedroom-3", "x", -1, 0, 1.0, ["living", "bedroom-3"]),
-        ("master", "z", 2, 2.5, 1.0, ["living", "master"]),
-        ("shared-bath", "z", 2, -0.25, 1.0, ["living", "bath-shared"]),
-        ("ensuite", "x", 0.5, 5, 1.0, ["master", "bath-ensuite"]),
-        ("kitchen", "z", -3.5, 0.25, 1.0, ["living", "kitchen"]),
-        ("balcony", "z", -3.5, 2.9, 1.4, ["living", "balcony"]),
+        ("entrance", "z", 0, 5.3, 1.1, ["outside", "foyer"]),
+        ("living-entrance", "z", 12.5, 4.5, 1.2, ["outside", "living"]),
+        ("foyer-master", "x", 4.6, 3.8, 1.1, ["foyer", "master"]),
+        ("foyer-bedroom-2", "x", 6, 2.5, 1.0, ["foyer", "bedroom-2"]),
+        ("foyer-bath", "x", 6, 4.3, 1.0, ["foyer", "bath-shared"]),
+        ("foyer-kitchen", "x", 6, 6.7, 1.0, ["foyer", "kitchen"]),
+        ("foyer-bedroom-3", "x", 4.6, 7.1, 1.1, ["foyer", "bedroom-3"]),
+        ("foyer-living", "z", 8.2, 5.3, 1.1, ["foyer", "living"]),
+        ("master-ensuite", "z", 1.8, 3.3, 1.0, ["master", "bath-ensuite"]),
+        ("north-balcony", "x", 9, 8.9, 1.1, ["living", "balcony-north"]),
+        ("south-balcony", "x", 0, 6.55, 0.9, ["bedroom-3", "balcony-south"]),
     ]:
-        add_opening(opening_id, axis, fixed, center, width, 0, DOOR_HEIGHT, connects=connects)
+        add_opening(opening_id, axis, fixed * PLAN_SCALE, center * PLAN_SCALE, width * PLAN_SCALE, 0, DOOR_HEIGHT, connects=connects)
 
     for opening_id, axis, fixed, center, width, bottom, top, zone_id, privacy in [
-        ("bedroom-2", "x", -4.5, -4, 2.0, 0.9, 2.35, "bedroom-2", False),
-        ("bedroom-3", "x", -5, 0, 2.0, 0.9, 2.35, "bedroom-3", False),
-        ("living-south", "x", 4, 0.5, 1.8, 0.9, 2.35, "living", False),
-        ("master-south", "x", 4.5, 4, 1.8, 0.9, 2.35, "master", False),
-        ("master-east", "z", 6, 2.5, 2.0, 0.9, 2.35, "master", False),
-        ("kitchen", "z", -6, 0.25, 1.2, 1.0, 2.35, "kitchen", False),
-        ("shared-bath", "x", -2, 3, 0.9, 1.8, 2.4, "bath-shared", True),
-        ("ensuite", "z", 6, -0.75, 0.9, 1.8, 2.4, "bath-ensuite", True),
+        ("bedroom-2-north", "x", 10, 1.65, 2.2, 0.9, 2.35, "bedroom-2", False),
+        ("bath-shared-north", "x", 8.72, 4.3, 1.1, 1.7, 2.4, "bath-shared", True),
+        ("kitchen-north", "x", 9, 6.6, 1.4, 0.9, 2.35, "kitchen", False),
+        ("master-south", "x", 0, 3.8, 1.8, 0.9, 2.35, "master", False),
+        ("bedroom-3-south", "x", 0, 7.78, 0.42, 0.9, 2.35, "bedroom-3", False),
+        ("living-east-low", "z", 12.5, 2.0, 1.8, 0.9, 2.35, "living", False),
+        ("living-east-high", "z", 12.5, 6.6, 1.8, 0.9, 2.35, "living", False),
+        ("ensuite-west", "z", 0, 4.1, 0.8, 1.8, 2.4, "bath-ensuite", True),
     ]:
-        add_opening(opening_id, axis, fixed, center, width, bottom, top, zone_id=zone_id, privacy=privacy)
-    for index, run in enumerate(run for run in runs if run["outside"] and "balcony" in (run["positive"], run["negative"])):
+        add_opening(opening_id, axis, fixed * PLAN_SCALE, center * PLAN_SCALE, width * PLAN_SCALE, bottom, top, zone_id=zone_id, privacy=privacy)
+    for index, run in enumerate(run for run in runs if run["outside"] and any(owner and owner.startswith("balcony-") for owner in (run["positive"], run["negative"]))):
+        balcony_id = next(owner for owner in (run["positive"], run["negative"]) if owner and owner.startswith("balcony-"))
         add_opening(f"balcony-{index}", run["axis"], run["fixed"], (run["start"] + run["end"]) / 2,
-                    run["end"] - run["start"] - 0.16, 0.08, 2.72, zone_id="balcony", enclosure=True)
+                    run["end"] - run["start"] - 0.16, 0.08, 2.72, zone_id=balcony_id, enclosure=True)
+
+    def furniture_item(item_id: str, room_id: str, kind: str, name: str, size: list[float], u: float, v: float,
+                       yaw: float = 0, notes: str = "") -> dict:
+        x0, z0, x1, z1 = zone_by_id[room_id]["rect"]
+        x = x0 + (x1 - x0) * u
+        z = z0 + (z1 - z0) * v
+        return {"id": item_id, "roomId": room_id, "type": kind, "name": name,
+                "position": [round(x, 3), round(size[1] / 2, 3), round(z, 3)],
+                "size": [round(value, 3) for value in size],
+                "rotation": [0, round(math.sin(yaw / 2), 6), 0, round(math.cos(yaw / 2), 6)], "notes": notes}
+
+    # Planning metadata only. These anchors are deliberately kept out of the
+    # scene's furniture array so the example remains a clean structural room.
+    furniture_plan = [
+        furniture_item("living-sofa", "living", "sofa", "三人沙发", [2.4, 0.85, 0.95], 0.46, 0.76, math.pi, "靠北侧布置，面向电视墙，保留阳台通道"),
+        furniture_item("living-tv", "living", "tv-console", "电视柜", [1.9, 0.55, 0.45], 0.82, 0.28, math.pi, "贴东侧墙，正对沙发"),
+        furniture_item("living-table", "living", "coffee-table", "茶几", [1.2, 0.4, 0.7], 0.52, 0.48, 0, "位于沙发与电视之间，四周留通行空间"),
+        furniture_item("living-sideboard", "living", "sideboard", "边柜", [1.2, 0.8, 0.42], 0.16, 0.22, math.pi / 2, "靠西侧内墙，避开阳台门洞"),
+        furniture_item("master-bed", "master", "bed", "双人床", [2.1, 0.55, 2.0], 0.42, 0.62, 0, "床头靠北侧墙，避开套卫入口"),
+        furniture_item("master-nightstand-a", "master", "nightstand", "床头柜 A", [0.45, 0.55, 0.45], 0.15, 0.62, 0),
+        furniture_item("master-nightstand-b", "master", "nightstand", "床头柜 B", [0.45, 0.55, 0.45], 0.69, 0.62, 0),
+        furniture_item("master-wardrobe", "master", "wardrobe", "衣柜", [0.6, 2.1, 2.1], 0.88, 0.58, math.pi / 2, "靠东侧墙，远离窗户开启范围"),
+        furniture_item("master-desk", "master", "desk", "书桌", [1.2, 0.75, 0.6], 0.18, 0.18, 0, "靠南侧采光面"),
+        furniture_item("bedroom-2-bed", "bedroom-2", "bed", "单人床", [1.1, 0.5, 2.0], 0.28, 0.58, 0, "床头靠西侧，留出窗前活动区"),
+        furniture_item("bedroom-2-desk", "bedroom-2", "desk", "书桌", [1.1, 0.75, 0.6], 0.72, 0.18, math.pi, "靠客厅侧墙，避开南侧窗"),
+        furniture_item("bedroom-2-wardrobe", "bedroom-2", "wardrobe", "衣柜", [0.55, 2.0, 1.6], 0.88, 0.72, math.pi / 2),
+        furniture_item("bedroom-3-bed", "bedroom-3", "bed", "单人床", [1.1, 0.5, 2.0], 0.28, 0.58, 0, "床头靠西侧，保留门口回转空间"),
+        furniture_item("bedroom-3-desk", "bedroom-3", "desk", "书桌", [1.1, 0.75, 0.6], 0.72, 0.18, math.pi, "靠客厅侧墙"),
+        furniture_item("bedroom-3-storage", "bedroom-3", "storage", "储物柜", [0.55, 1.8, 1.6], 0.88, 0.72, math.pi / 2),
+        furniture_item("shared-vanity", "bath-shared", "vanity", "洗手台", [0.75, 0.85, 0.45], 0.2, 0.5, math.pi / 2),
+        furniture_item("shared-toilet", "bath-shared", "toilet", "马桶", [0.7, 0.75, 0.7], 0.56, 0.5, 0),
+        furniture_item("shared-shower", "bath-shared", "shower", "淋浴区", [0.8, 2.2, 0.9], 0.86, 0.5, math.pi / 2),
+        furniture_item("ensuite-vanity", "bath-ensuite", "vanity", "洗手台", [0.65, 0.85, 0.42], 0.18, 0.5, math.pi / 2),
+        furniture_item("ensuite-toilet", "bath-ensuite", "toilet", "马桶", [0.7, 0.75, 0.7], 0.53, 0.5, 0),
+        furniture_item("ensuite-shower", "bath-ensuite", "shower", "淋浴区", [0.8, 2.2, 0.9], 0.86, 0.5, math.pi / 2),
+        furniture_item("kitchen-run", "kitchen", "cabinet", "橱柜操作台", [2.35, 0.9, 0.6], 0.5, 0.18, 0, "沿北侧连续布置，保留入户转身区"),
+        furniture_item("kitchen-fridge", "kitchen", "fridge", "冰箱", [0.7, 1.9, 0.7], 0.88, 0.52, 0),
+        furniture_item("kitchen-table", "kitchen", "dining-table", "小餐桌", [1.1, 0.75, 0.65], 0.44, 0.72, 0, "靠南侧，避开厨房窗户"),
+        furniture_item("foyer-shoe-cabinet", "foyer", "shoe-cabinet", "鞋柜", [1.2, 1.0, 0.35], 0.2, 0.5, math.pi / 2, "玄关内侧，入口不设窗"),
+        furniture_item("foyer-bench", "foyer", "bench", "换鞋凳", [0.8, 0.45, 0.4], 0.68, 0.5, math.pi / 2),
+        furniture_item("south-balcony-washer", "balcony-south", "washer", "南阳台洗衣机", [0.65, 0.85, 0.65], 0.22, 0.52, 0, "靠西侧玻璃窗，预留排水位置"),
+        furniture_item("south-balcony-cabinet", "balcony-south", "storage", "南阳台收纳柜", [0.6, 1.8, 1.1], 0.74, 0.5, math.pi / 2),
+        furniture_item("north-balcony-chair", "balcony-north", "lounge-chair", "北阳台休闲椅", [0.8, 0.9, 0.8], 0.5, 0.5, 0, "封闭阳台保留通向客厅的门洞"),
+    ]
 
     # Horizontal walls own junction volumes. Vertical walls terminate at their
     # faces, so corners and T-junctions touch without overlapping wall solids.
@@ -231,12 +287,15 @@ def create_example_layout(scene_id: str) -> dict:
                 owner = zone_by_id[owner_id]
                 direction = ("north" if run["fixed"] < owner["center"][2] else "south") if run["axis"] == "x" else ("west" if run["fixed"] < owner["center"][0] else "east")
                 label = {"north": "北墙", "south": "南墙", "west": "西墙", "east": "东墙"}[direction]
-                face = {"id": f"{panel['id']}:{side}", "zoneId": owner_id, "editGroupId": f"example-{owner_id}-wall-{direction}", "label": f"{owner['name']} · {label}"}
+                # Every physical panel face gets its own editor group. A
+                # room/direction label is useful for display but must not
+                # couple separate panels (for example above and beside a
+                # doorway).
+                face = {"id": f"{panel['id']}:{side}", "zoneId": owner_id, "editGroupId": f"{panel['id']}:{side}", "label": f"{owner['name']} · {label}"}
                 panel["wallFaces"][side] = face
                 if run[side]:
                     owner["wallSurfaceIds"].append(face["id"])
-                    if face["editGroupId"] not in owner["wallGroupIds"]:
-                        owner["wallGroupIds"].append(face["editGroupId"])
+                    owner["wallGroupIds"].append(face["editGroupId"])
             surfaces.append(panel)
             colliders.append({key: panel[key] for key in ("position", "rotation", "size")})
 
@@ -250,7 +309,7 @@ def create_example_layout(scene_id: str) -> dict:
         "source": {"kind": "example-layout", "templateId": TEMPLATE_ID, "schemaVersion": "roomcanvas.example.v1", "scanId": scene_id,
                    "worldOffset": [0, 0, 0], "coordinateSystem": "right-handed-y-up", "matrixLayout": "column-major", "orientation": None},
         "room": {"surfaces": surfaces, "colliders": colliders, "min": minimum, "max": maximum, "bounds": [maximum[axis] - minimum[axis] for axis in range(3)],
-                 "layout": {"templateId": TEMPLATE_ID, "zones": zones, "doorways": doorways, "windows": windows, "boundary": boundary, "spawn": [0, 1.5, 0]}},
+                 "layout": {"templateId": TEMPLATE_ID, "zones": zones, "doorways": doorways, "windows": windows, "boundary": boundary, "spawn": [0, 1.5, 0], "furniturePlan": furniture_plan}},
         "furniture": [], "cameras": [], "warnings": [],
         "pipeline": {"status": "ready", "preparation": "complete", "autoReconstruct": False, "stageMessage": "示例户型已生成",
                      "completed": 0, "total": 0, "failed": 0, "needsReview": 0},

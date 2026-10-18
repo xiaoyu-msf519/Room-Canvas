@@ -23,6 +23,8 @@ try {
   const { ScannedRoom } = await vite.ssrLoadModule('/src/scene/ScannedRoom.tsx')
   const targets = editableSurfaces(scene.room.surfaces)
   assert.equal(new Set(targets.filter((surface) => surface.kind === 'floor').map(surfaceGroupId)).size, scene.room.layout.zones.length)
+  const wallTargets = targets.filter((surface) => surface.kind === 'wall')
+  assert.equal(new Set(wallTargets.map(surfaceGroupId)).size, wallTargets.length, 'Every wall face and narrow side must have a unique finish group')
   const targetById = new Map(targets.map((surface) => [surface.id, surface]))
   for (const zone of scene.room.layout.zones) {
     assert.equal(targetById.get(zone.floorSurfaceId)?.zoneId, zone.id)
@@ -44,7 +46,7 @@ try {
   assert.equal(useRoomCanvasStore.getState().selectedSurfaceId, positive.id)
   await act(async () => useSurfaceFinishStore.getState().setFinish(scene.id, surfaceGroupId(positive), finish))
   assert.ok(source.instance.material[1].map)
-  assert.ok(source.instance.material[0].map, 'Wall side must receive its own selected finish')
+  assert.equal(source.instance.material[0].map, null, 'Wall side must not inherit the positive face finish')
   assert.equal(source.instance.material[2].map, null, 'Shared wall paint leaked into the next room')
   assert.equal(solid.instance.material[1].map.source, source.instance.material[1].map.source)
   await act(async () => { await renderer.fireEvent(solid, 'click', { delta: 0, face: { materialIndex: 2 }, stopPropagation() {} }) })
@@ -60,7 +62,7 @@ try {
   assert.ok(floors.filter((node) => node.instance.userData.zoneId !== 'master').every((node) => node.instance.material.map === null))
   await act(async () => useRoomCanvasStore.getState().setMode('play'))
   assert.ok(source.instance.material[1].map && source.instance.material.every((material) => !material.transparent))
-  const legacyId = surfaceGroupId(shared)
+  const legacyId = shared.id.replace(/-\d+$/, '')
   await act(async () => {
     useSurfaceFinishStore.getState().setFinish(scene.id, legacyId, finish)
     useSurfaceFinishStore.getState().migrateSurfaceGroups(scene.id, scene.room.surfaces)
@@ -70,7 +72,7 @@ try {
   await act(async () => useSurfaceFinishStore.getState().setFinish(scene.id, surfaceGroupId(positive), null))
   assert.equal(source.instance.material[1].map, null)
   assert.ok(source.instance.material[2].map, 'Resetting one room must not reset its neighbor')
-  console.log('PASS: nine independent floors with explicit room surface IDs, four wall groups per room, separate shared-wall sides, click targeting, Edit/Play reuse, legacy paint migration and independent reset.')
+  console.log('PASS: nine independent floors, unique wall face/side groups, separate shared-wall sides, click targeting, Edit/Play reuse, legacy paint migration and independent reset.')
 } finally {
   if (renderer) await renderer.unmount()
   TextureLoader.prototype.load = originalLoad

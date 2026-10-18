@@ -144,7 +144,18 @@ def adapt_scan(bundle: Path, scene_id: str) -> dict:
         transform = matrix(surface["surfaceToWorld"])
         if surface["kind"] == "wall":
             for index, piece in enumerate(wall_panels(surface, apertures)):
-                panel = {"id": f"{surface['id']}-{index}", "kind": "wall", "size": piece["size"], **pose(piece["matrix"], offset)}
+                panel_id = f"{surface['id']}-{index}"
+                # A source RoomPlan wall may be split into several panels by
+                # door/window subtraction. Keep every panel and each face
+                # independently paintable; the source id remains provenance
+                # for recovered colour only.
+                panel = {"id": panel_id, "kind": "wall", "size": piece["size"], **pose(piece["matrix"], offset),
+                         "wallFaces": {
+                             "positive": {"id": f"{panel_id}:positive", "zoneId": surface["id"],
+                                          "editGroupId": f"{panel_id}:positive", "label": f"{surface['id']} · 正面"},
+                             "negative": {"id": f"{panel_id}:negative", "zoneId": surface["id"],
+                                          "editGroupId": f"{panel_id}:negative", "label": f"{surface['id']} · 反面"},
+                         }}
                 surfaces.append(panel)
                 colliders.append({key: panel[key] for key in ("position", "rotation", "size")})
         elif surface["kind"] == "floor":

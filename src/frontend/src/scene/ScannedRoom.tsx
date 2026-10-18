@@ -49,7 +49,7 @@ function WallAppearance({ wall, reference, finishes, selectedGroup, edit }: { wa
   const negative = useMemo(() => wallFaceSurface(surface, 'negative'), [surface])
   const side = useMemo(() => wallSideSurface(surface), [surface])
   const faceMaterials = useMemo(() => [[wall.blendSlots[1], wall.opaqueSlots[1]], [wall.blendSlots[2], wall.opaqueSlots[2]]], [wall])
-  const sideFinish = finishes?.[selectedGroup ?? ''] ?? finishes?.[surfaceGroupId(side)] ?? finishes?.[surfaceGroupId(positive)] ?? finishes?.[surfaceGroupId(negative)] ?? finishes?.[surfaceGroupId(surface)]
+  const sideFinish = finishes?.[surfaceGroupId(side)]
   useSurfaceAppearance(materials, side, sideFinish, edit && selectedGroup === surfaceGroupId(side))
   const geometry = useMemo(() => createMetricWallGeometry(surface, reference), [surface, reference])
   useEffect(() => () => geometry.dispose(), [geometry])

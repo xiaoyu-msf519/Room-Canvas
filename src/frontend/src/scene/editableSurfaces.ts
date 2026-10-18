@@ -2,12 +2,13 @@ import type { RoomSurface } from '../types/scene'
 
 export function wallFaceSurface(surface: RoomSurface, side: 'positive' | 'negative'): RoomSurface {
   const face = surface.wallFaces?.[side]
-  return face ? { ...surface, ...face, id: face.id ?? `${surface.id}:${side}`, wallFaces: undefined } : surface
+  return face ? { ...surface, ...face, id: face.id ?? `${surface.id}:${side}`, editGroupId: face.editGroupId ?? `${surface.id}:${side}`, wallFaces: undefined } : surface
 }
 
 export function wallSideSurface(surface: RoomSurface): RoomSurface {
-  const parentGroup = surface.editGroupId ?? surface.id
-  return { ...surface, id: `${surface.id}:side`, zoneId: surface.zoneId ?? surface.wallFaces?.positive.zoneId, editGroupId: `${parentGroup}:side`, label: `${surface.label ?? '墙面'} · 侧面`, wallFaces: undefined }
+  // Side paint belongs to this physical wall panel, regardless of any room
+  // or source-wall grouping present in imported metadata.
+  return { ...surface, id: `${surface.id}:side`, zoneId: surface.zoneId ?? surface.wallFaces?.positive.zoneId, editGroupId: `${surface.id}:side`, label: `${surface.label ?? '墙面'} · 侧面`, wallFaces: undefined }
 }
 
 export function editableSurfaces(surfaces: RoomSurface[]): RoomSurface[] {
